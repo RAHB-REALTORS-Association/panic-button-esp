@@ -1,7 +1,8 @@
 #include <ESP8266WiFi.h>
-#include <WiFiManager.h>         //https://github.com/tzapu/WiFiManager
+#include <WiFiManager.h>         
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <FS.h> // Include the SPIFFS library
 
 // Constants
 const int buttonPin = 2; // choose the input pin (for a pushbutton)
@@ -17,6 +18,12 @@ const char* sendingPhoneNumber = "0987654321"; // Your Twilio phone number
 // Recipient details
 const char* recipientEmails[] = {"recipient1@example.com", "recipient2@example.com"};
 const char* recipientPhoneNumbers[] = {"1234567890", "0987654321"};
+
+// API details
+const char* twilioAPIKey = "TWILIO_API_KEY"; // Replace with your actual Twilio API key
+const char* sendGridAPIKey = "SENDGRID_API_KEY"; // Replace with your actual SendGrid API key
+const char* twilioAPIEndpoint = "https://api.twilio.com/2010-04-01/Accounts/{Account_SID}/Messages.json";
+const char* sendGridAPIEndpoint = "https://api.sendgrid.com/v3/mail/send";
 
 // Button debouncing
 const unsigned long debounceTime = 50; // Debounce time in ms
@@ -52,7 +59,28 @@ void setup() {
   Serial.println(WiFi.localIP());
   
   // Setup secure client
-  client.setInsecure();  // Ignore SSL certificate errors. Be careful with this in a production environment
+  if (!SPIFFS.begin()) {
+    Serial.println("Failed to mount file system");
+    return;
+  }
+
+  // Load certificate file for Twilio
+  File twilioCert = SPIFFS.open("/twilio.crt", "r");
+  if (!twilioCert) {
+    Serial.println("Failed to open cert file for Twilio");
+  } else if (client.loadCertificate(twilioCert)) {
+    Serial.println("Loaded cert file for Twilio");
+  }
+  twilioCert.close();
+
+  // Load certificate file for SendGrid
+  File sendGridCert = SPIFFS.open("/sendgrid.crt", "r");
+  if (!sendGridCert) {
+    Serial.println("Failed to open cert file for SendGrid");
+  } else if (client.loadCertificate(sendGridCert)) {
+    Serial.println("Loaded cert file for SendGrid");
+  }
+  sendGridCert.close();
 }
 
 void loop() {
@@ -73,9 +101,10 @@ void loop() {
            HTTPClient http;
 
            for(int i = 0; i < sizeof(recipientPhoneNumbers)/sizeof(char*); i++) {
-             http.begin(client, "https://TWILIO_API_ENDPOINT"); 
+             http.begin(client, twilioAPIEndpoint); 
              http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-             String twilioPayload = "api_key=TWILIO_API_KEY&from=" + String(sendingPhoneNumber) + "&to=" + String(recipientPhoneNumbers[i]) + "&message=" + String(message);
+             http.addHeader("Authorization", "Basic " + String(twilioAPIKey));
+             String twilioPayload = "From=" + String(sendingPhoneNumber) + "&To=" + String(recipientPhoneNumbers[i]) + "&Body=" + String(message);
              int httpCodeTwilio = http.POST(twilioPayload);
              if (httpCodeTwilio > 0) {
                 if (httpCodeTwilio != HTTP_CODE_OK) {
@@ -88,10 +117,13 @@ void loop() {
            }
 
            for(int i = 0; i < sizeof(recipientEmails)/sizeof(char*); i++) {
-             http.begin(client, "https://SENDGRID_API_ENDPOINT"); 
-             http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-             String sendGridPayload = "api_key=SENDGRID_API_KEY&subject=" + String(emailSubject) + "&sender=" + String(senderEmail) + "&recipient=" + String(recipientEmails[i]) + 
-"&message=" + String(message);
+             http.begin(client, sendGridAPIEndpoint); 
+             http.addHeader("Content-Type", "application/json");
+             http.addHeader("Authorization", "Bearer " + String(sendGridAPIKey));
+             String sendGridPayload = "{\"personalizations\": [{\"to\": [{\"email\": \"" + String(recipientEmails[i]) + 
+             "\"}]}], \"from\": {\"email\": \"" + String(senderEmail) + 
+             "\"}, \"subject\": \"" + String(emailSubject) + 
+             "\", \"content\": [{\"type\": \"text/plain\", \"value\": \"" + String(message) + "\"}]}";
              int httpCodeSendGrid = http.POST(sendGridPayload);
              if (httpCodeSendGrid > 0) {
                 if (httpCodeSendGrid != HTTP_CODE_OK) {
