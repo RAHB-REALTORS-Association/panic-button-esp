@@ -5,6 +5,8 @@
 
 // Constants
 const int buttonPin = 2; // choose the input pin (for a pushbutton)
+const int resetButtonPin = 3; // choose the input pin (for a reset button)
+bool resetEnabled = true; // Set to false to disable reset functionality
 
 // Message details
 const char* message = "Your message goes here";
@@ -22,10 +24,17 @@ unsigned long lastDebounceTime = 0;  // the last time the button pin was toggled
 int buttonState;  // the current reading from the input pin
 int lastButtonState = LOW;  // the previous reading from the input pin
 
+// Reset button
+unsigned long resetButtonPressTime = 0; // When the reset button was first pressed
+const unsigned long resetPressDuration = 5000; // Must hold button for 5 seconds to reset
+
 WiFiClientSecure client;
 
 void setup() {
   pinMode(buttonPin, INPUT);
+  if (resetEnabled) {
+    pinMode(resetButtonPin, INPUT_PULLUP); // Use internal pullup resistor
+  }
   Serial.begin(115200);
 
   // Connect to Wifi network or start access point if not configured
@@ -99,5 +108,29 @@ void loop() {
   }
   
   lastButtonState = reading;
-}
 
+  // Check reset button, if reset is enabled
+  if (resetEnabled) {
+    int resetButtonState = digitalRead(resetButtonPin);
+
+    // If the reset button is currently being pressed
+    if (resetButtonState == LOW) {
+      // If the reset button was just pressed, record the start time
+      if (resetButtonPressTime == 0) {
+        resetButtonPressTime = millis();
+      }
+
+      // If the reset button has been held for long enough, reset the settings
+      else if ((millis() - resetButtonPressTime) > resetPressDuration) {
+        WiFiManager wifiManager;
+        wifiManager.resetSettings();
+        ESP.reset(); // Reset ESP to trigger WiFi reconnection on startup
+      }
+    }
+
+    // If the reset button was released before the time limit, do not reset the settings
+    else {
+      resetButtonPressTime = 0;
+    }
+  }
+}
