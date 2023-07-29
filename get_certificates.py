@@ -1,6 +1,6 @@
 import os
 import ssl
-import OpenSSL
+import subprocess
 from socket import create_connection
 
 # List of API endpoints
@@ -10,19 +10,14 @@ api_endpoints = [('api.twilio.com', 'twilio.crt'), ('api.sendgrid.com', 'sendgri
 data_dir = os.path.join(os.path.dirname(__file__), 'panic-button', 'data')
 
 def get_certificate_chain(host, cert_file, port=443):
-    # Connect to the host and get the certificate
-    context = ssl.create_default_context()
-    with create_connection((host, port)) as sock:
-        with context.wrap_socket(sock, server_hostname=host) as ssl_sock:
-            # Get the certificate chain
-            cert_chain = ssl_sock.getpeercertchain()
+    # Call the OpenSSL command-line tool to get the certificate chain
+    command = f"openssl s_client -showcerts -connect {host}:{port} < /dev/null 2> /dev/null | openssl x509 -outform PEM"
+    cert_chain = subprocess.check_output(command, shell=True)
 
     # Save the root CA certificate to a file
-    root_ca_cert = cert_chain[-1]
-    root_ca_pem = ssl.DER_cert_to_PEM_cert(root_ca_cert)
     root_ca_filename = f"{os.path.join(data_dir, cert_file)}"
-    with open(root_ca_filename, 'w') as f:
-        f.write(root_ca_pem)
+    with open(root_ca_filename, 'wb') as f:
+        f.write(cert_chain)
     print(f"Saved root CA certificate for {host} to {root_ca_filename}")
 
 # Create data directory if not exists
