@@ -1,5 +1,4 @@
 import os
-import ssl
 import subprocess
 from socket import create_connection
 
