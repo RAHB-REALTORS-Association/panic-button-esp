@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Panic Button Documentation</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f9f9f9;
+      color: #333;
+      transition: background 0.3s, color 0.3s;
+    }
+    header, main, footer {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    header {
+      background: #4CAF50;
+      color: white;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 2.5rem;
+    }
+    nav {
+      background-color: #333;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 20px;
+    }
+    nav a {
+      color: white;
+      text-decoration: none;
+      margin-right: 15px;
+    }
+    nav .toggle {
+      cursor: pointer;
+      background: none;
+      border: 1px solid white;
+      padding: 5px 10px;
+      color: white;
+      border-radius: 5px;
+      font-size: 0.9rem;
+    }
+    section {
+      margin-top: 40px;
+    }
+    h2 {
+      color: #4CAF50;
+      border-bottom: 2px solid #ddd;
+      padding-bottom: 5px;
+    }
+    code, pre {
+      background-color: #eee;
+      padding: 5px;
+      border-radius: 5px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    table, th, td {
+      border: 1px solid #ccc;
+    }
+    th, td {
+      padding: 10px;
+      text-align: left;
+    }
+    .simulator-frame {
+      margin-top: 40px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    iframe {
+      width: 100%;
+      height: 700px;
+      border: none;
+    }
+    footer {
+      text-align: center;
+      font-size: 0.9rem;
+      color: #777;
+      margin-top: 40px;
+      border-top: 1px solid #ddd;
+      padding-top: 20px;
+    }
+    body.dark-mode {
+      background-color: #121212;
+      color: #eee;
+    }
+    body.dark-mode nav, body.dark-mode header {
+      background-color: #222;
+    }
+    body.dark-mode nav a,
+    body.dark-mode .toggle,
+    body.dark-mode header {
+      color: #eee;
+    }
+    body.dark-mode table,
+    body.dark-mode th,
+    body.dark-mode td {
+      border-color: #444;
+    }
+    body.dark-mode code, body.dark-mode pre {
+      background-color: #333;
+      color: #eee;
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div>
+      <a href="#">Home</a>
+      <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp" target="_blank">View on GitHub</a>
+    </div>
+    <button class="toggle" onclick="toggleDarkMode()">Toggle Dark Mode</button>
+  </nav>
+
+  <header>
+    <h1>🔴 ESP32 Wi-Fi Panic Button</h1>
+    <p>A standalone panic button with email alerts and a slick web UI.</p>
+  </header>
+
+  <main>
+    <section>
+      <h2>✨ Features</h2>
+      <ul>
+        <li>Wi-Fi configuration via captive portal</li>
+        <li>SMTP email alerts when panic button is pressed</li>
+        <li>Web-based control panel and config update page</li>
+        <li>EEPROM-stored settings (WiFi and SMTP)</li>
+        <li>Factory reset and test email functions</li>
+        <li>Mobile-friendly responsive UI</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>🛠️ Hardware</h2>
+      <ul>
+        <li>ESP32 (any dev board)</li>
+        <li>Tactile button (connected to GPIO 13)</li>
+        <li>Status LED (connected to GPIO 2)</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>📦 Libraries Used</h2>
+      <ul>
+        <li><a href="https://github.com/mobizt/ESP-Mail-Client" target="_blank">ESP Mail Client</a></li>
+        <li>WiFi</li>
+        <li>WebServer</li>
+        <li>DNSServer</li>
+        <li>EEPROM</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>🔌 Pinout</h2>
+      <table>
+        <thead><tr><th>Function</th><th>GPIO</th></tr></thead>
+        <tbody>
+          <tr><td>Panic Button</td><td>13</td></tr>
+          <tr><td>Status LED</td><td>2</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>🚀 Getting Started</h2>
+      <ol>
+        <li>Flash the firmware to your ESP32.</li>
+        <li>If no config is stored, the ESP32 starts in <strong>Setup Mode</strong>:
+          <ul>
+            <li>Hosts an AP named <code>PanicAlarm_Setup</code></li>
+            <li>Access the captive portal to configure Wi-Fi and email</li>
+          </ul>
+        </li>
+        <li>Once configured, the device will connect to the saved network and begin monitoring.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>🔧 Web Interface Simulator</h2>
+      <p>Try out the full UI experience below:</p>
+      <div class="simulator-frame">
+        <iframe src="simulator.html"></iframe>
+      </div>
+    </section>
+
+    <section>
+      <h2>🧪 Testing</h2>
+      <ul>
+        <li>Press the hardware button to trigger an alarm.</li>
+        <li>Use <code>/test</code> from the browser to simulate an alert.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>🔁 Resetting</h2>
+      <p>Visit <code>/reset</code>, confirm, and the device will wipe config and restart in setup mode.</p>
+    </section>
+
+    <section>
+      <h2>📄 License</h2>
+      <p>GPLv3 – see <a href="LICENSE">LICENSE</a> for details.</p>
+    </section>
+  </main>
+
+  <footer>
+    Made with ❤️ by Justin Hayes. Simulator UI and documentation powered by GitHub Pages.
+  </footer>
+
+  <script>
+    function toggleDarkMode() {
+      document.body.classList.toggle('dark-mode');
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Panic Alarm Interface Simulator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f0f0f0;
+      color: #333;
+    }
+    
+    .container {
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    
+    .simulator {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 30px;
+    }
+    
+    .mobile-frame {
+      width: 320px;
+      height: 568px;
+      border: 16px solid #333;
+      border-radius: 36px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    }
+    
+    .screen {
+      width: 100%;
+      height: 100%;
+      background-color: white;
+      overflow-y: auto;
+    }
+    
+    .nav-bar {
+      padding: 10px;
+      text-align: right;
+      border-bottom: 1px solid #ddd;
+      background-color: #f5f5f5;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .nav-title {
+      font-weight: bold;
+      font-size: 14px;
+    }
+    
+    .wifi-icon {
+      font-size: 14px;
+    }
+    
+    .interface-content {
+      padding: 15px;
+    }
+    
+    h1 {
+      color: #333;
+      font-size: 20px;
+      margin-top: 0;
+    }
+    
+    h2 {
+      color: #333;
+      font-size: 16px;
+      margin-top: 20px;
+      margin-bottom: 10px;
+    }
+    
+    .section {
+      background-color: #fff;
+      border-radius: 5px;
+      padding: 15px;
+      margin-bottom: 15px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    label {
+      display: block;
+      margin-top: 10px;
+      font-weight: bold;
+      font-size: 12px;
+    }
+    
+    input {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+      font-size: 12px;
+    }
+    
+    .button {
+      background-color: #4CAF50;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      margin-top: 15px;
+      display: inline-block;
+      text-decoration: none;
+      text-align: center;
+    }
+    
+    .test {
+      background-color: #2196F3;
+    }
+    
+    .reset {
+      background-color: #f44336;
+    }
+    
+    .status {
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    
+    .buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    
+    .tab-control {
+      display: flex;
+      margin-bottom: 20px;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    
+    .tab {
+      flex: 1;
+      padding: 10px;
+      text-align: center;
+      background-color: #ddd;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    .tab.active {
+      background-color: #4CAF50;
+      color: white;
+    }
+    
+    .view {
+      display: none;
+    }
+    
+    .view.active {
+      display: block;
+    }
+    
+    .interface-nav {
+      display: flex;
+      justify-content: space-around;
+      padding: 10px 0;
+      border-top: 1px solid #ddd;
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      background-color: #f5f5f5;
+    }
+    
+    .loading {
+      text-align: center;
+      padding: 20px;
+    }
+    
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 2s linear infinite;
+      margin: 20px auto;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .page-info {
+      margin-top: 30px;
+      border-top: 1px solid #ddd;
+      padding-top: 20px;
+    }
+    
+    .controls {
+      margin-top: 20px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+    
+    .control-btn {
+      padding: 10px 15px;
+      background-color: #333;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Panic Alarm Web Interface Simulator</h1>
+    <p>This simulator demonstrates the different web interfaces of the ESP32 panic alarm system.</p>
+    
+    <div class="tab-control">
+      <div class="tab active" onclick="switchTab('setup')">Initial Setup</div>
+      <div class="tab" onclick="switchTab('dashboard')">Dashboard</div>
+      <div class="tab" onclick="switchTab('config')">Configuration</div>
+      <div class="tab" onclick="switchTab('test')">Test Result</div>
+      <div class="tab" onclick="switchTab('reset')">Factory Reset</div>
+    </div>
+    
+    <div class="simulator">
+      <div class="mobile-frame">
+        <div class="screen">
+          <div class="nav-bar">
+            <span class="nav-title" id="nav-title">PanicAlarm_Setup</span>
+            <span class="wifi-icon">📶</span>
+          </div>
+          
+          <!-- Setup View -->
+          <div class="view active" id="setup">
+            <div class="interface-content">
+              <h1>Panic Alarm Setup</h1>
+              <form action="#" method="post">
+                <div class="section">
+                  <h2>WiFi Settings</h2>
+                  <label for="ssid">WiFi SSID:</label>
+                  <input type="text" id="ssid" name="ssid" placeholder="Your WiFi name">
+                  
+                  <label for="password">WiFi Password:</label>
+                  <input type="password" id="password" name="password" placeholder="WiFi password">
+                </div>
+                
+                <div class="section">
+                  <h2>Email Settings</h2>
+                  <label for="email_server">SMTP Server:</label>
+                  <input type="text" id="email_server" name="email_server" placeholder="smtp.gmail.com">
+                  
+                  <label for="email_port">SMTP Port:</label>
+                  <input type="number" id="email_port" name="email_port" value="587">
+                  
+                  <label for="email_username">Email Username:</label>
+                  <input type="text" id="email_username" name="email_username" placeholder="your.email@gmail.com">
+                  
+                  <label for="email_password">Email Password:</label>
+                  <input type="password" id="email_password" name="email_password" placeholder="App password or email password">
+                  
+                  <label for="email_recipient">Recipient Email:</label>
+                  <input type="email" id="email_recipient" name="email_recipient" placeholder="alert.recipient@example.com">
+                </div>
+                
+                <button type="button" class="button" onclick="showSaving()">Save Configuration</button>
+              </form>
+            </div>
+          </div>
+          
+          <!-- Dashboard View -->
+          <div class="view" id="dashboard">
+            <div class="interface-content">
+              <h1>Panic Alarm Control Panel</h1>
+              <p>Device is operational and monitoring for panic button presses.</p>
+              
+              <div class="section status">
+                <p><strong>WiFi SSID:</strong> HomeNetwork</p>
+                <p><strong>IP Address:</strong> 192.168.1.105</p>
+                <p><strong>Email Recipient:</strong> alert.recipient@example.com</p>
+              </div>
+              
+              <div class="buttons">
+                <a href="#" class="button" onclick="switchTab('config')">Update Configuration</a>
+                <a href="#" class="button test" onclick="switchTab('test')">Test Alarm</a>
+                <a href="#" class="button reset" onclick="switchTab('reset')">Factory Reset</a>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Configuration View -->
+          <div class="view" id="config">
+            <div class="interface-content">
+              <h1>Update Configuration</h1>
+              <form action="#" method="post">
+                <div class="section">
+                  <h2>WiFi Settings</h2>
+                  <label for="ssid_update">WiFi SSID:</label>
+                  <input type="text" id="ssid_update" name="ssid" value="HomeNetwork">
+                  
+                  <label for="password_update">WiFi Password:</label>
+                  <input type="password" id="password_update" name="password" value="••••••••">
+                </div>
+                
+                <div class="section">
+                  <h2>Email Settings</h2>
+                  <label for="email_server_update">SMTP Server:</label>
+                  <input type="text" id="email_server_update" name="email_server" value="smtp.gmail.com">
+                  
+                  <label for="email_port_update">SMTP Port:</label>
+                  <input type="number" id="email_port_update" name="email_port" value="587">
+                  
+                  <label for="email_username_update">Email Username:</label>
+                  <input type="text" id="email_username_update" name="email_username" value="your.email@gmail.com">
+                  
+                  <label for="email_password_update">Email Password:</label>
+                  <input type="password" id="email_password_update" name="email_password" value="••••••••">
+                  
+                  <label for="email_recipient_update">Recipient Email:</label>
+                  <input type="email" id="email_recipient_update" name="email_recipient" value="alert.recipient@example.com">
+                </div>
+                
+                <button type="button" class="button" onclick="showSaving()">Update Configuration</button>
+              </form>
+              
+              <div style="margin-top: 20px;">
+                <a href="#" class="button" style="background-color: #666;" onclick="switchTab('dashboard')">Back to Home</a>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Test Result View -->
+          <div class="view" id="test">
+            <div class="interface-content">
+              <h1>Test Result</h1>
+              <div class="section">
+                <p>Test alert sent successfully!</p>
+                <p>Check your email at alert.recipient@example.com</p>
+              </div>
+              <p>Redirecting to home page in 5 seconds...</p>
+              <div class="spinner"></div>
+              <div style="margin-top: 20px;">
+                <a href="#" class="button" onclick="switchTab('dashboard')">Back to Home</a>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Factory Reset View -->
+          <div class="view" id="reset">
+            <div class="interface-content">
+              <h1>Factory Reset</h1>
+              <div class="section">
+                <p>Are you sure you want to reset all settings?</p>
+                <p>This will erase all configuration and restart the device in setup mode.</p>
+              </div>
+              <div class="buttons">
+                <a href="#" class="button" style="background-color: #666;" onclick="switchTab('dashboard')">Cancel</a>
+                <a href="#" class="button reset" onclick="showResetting()">Yes, Reset Everything</a>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Loading View -->
+          <div class="view" id="saving">
+            <div class="interface-content loading">
+              <h1>Saving Configuration</h1>
+              <p>Please wait while your settings are being saved...</p>
+              <div class="spinner"></div>
+            </div>
+          </div>
+          
+          <!-- Resetting View -->
+          <div class="view" id="resetting">
+            <div class="interface-content loading">
+              <h1>Factory Reset</h1>
+              <p>Device is resetting. Connect to the WiFi network "PanicAlarm_Setup" to set up the device again.</p>
+              <div class="spinner"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="page-info">
+      <h2>Interface Details</h2>
+      <div id="page-description">
+        <h3>Initial Setup</h3>
+        <p>This is the first screen users see when connecting to the ESP32's captive portal after a factory reset. Users enter their WiFi credentials and email notification settings here.</p>
+      </div>
+    </div>
+    
+    <div class="controls">
+      <button class="control-btn" onclick="prevView()">Previous View</button>
+      <button class="control-btn" onclick="nextView()">Next View</button>
+    </div>
+  </div>
+  
+  <script>
+    const views = ['setup', 'dashboard', 'config', 'test', 'reset'];
+    const titles = ['PanicAlarm_Setup', 'Panic Alarm (192.168.1.105)', 'Panic Alarm - Config', 'Panic Alarm - Test', 'Panic Alarm - Reset'];
+    const descriptions = {
+      'setup': `<h3>Initial Setup</h3><p>This is the first screen users see when connecting to the ESP32's captive portal after a factory reset. Users enter their WiFi credentials and email notification settings here.</p>`,
+      
+      'dashboard': `<h3>Dashboard</h3><p>The main control panel that appears after successful WiFi connection. Shows the current status and provides options to update settings, test the alarm, or perform a factory reset.</p>`,
+      
+      'config': `<h3>Configuration Page</h3><p>Allows users to update their WiFi and email settings after initial setup. All fields are pre-populated with current values.</p>`,
+      
+      'test': `<h3>Test Result</h3><p>Appears after testing the alarm system. Shows whether the test email was sent successfully and automatically redirects back to the dashboard after a few seconds.</p>`,
+      
+      'reset': `<h3>Factory Reset</h3><p>Confirmation screen before performing a factory reset. Ensures users don't accidentally erase their configuration.</p>`
+    };
+    
+    let currentViewIndex = 0;
+    
+    function switchTab(viewId) {
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      
+      document.querySelectorAll('.view').forEach(view => {
+        view.classList.remove('active');
+      });
+      
+      document.querySelector(`.tab:nth-child(${views.indexOf(viewId) + 1})`).classList.add('active');
+      document.getElementById(viewId).classList.add('active');
+      document.getElementById('nav-title').innerText = titles[views.indexOf(viewId)];
+      document.getElementById('page-description').innerHTML = descriptions[viewId];
+      
+      currentViewIndex = views.indexOf(viewId);
+    }
+    
+    function showSaving() {
+      document.querySelectorAll('.view').forEach(view => {
+        view.classList.remove('active');
+      });
+      document.getElementById('saving').classList.add('active');
+      
+      setTimeout(() => {
+        switchTab('dashboard');
+      }, 2000);
+    }
+    
+    function showResetting() {
+      document.querySelectorAll('.view').forEach(view => {
+        view.classList.remove('active');
+      });
+      document.getElementById('resetting').classList.add('active');
+      
+      setTimeout(() => {
+        switchTab('setup');
+      }, 3000);
+    }
+    
+    function nextView() {
+      currentViewIndex = (currentViewIndex + 1) % views.length;
+      switchTab(views[currentViewIndex]);
+    }
+    
+    function prevView() {
+      currentViewIndex = (currentViewIndex - 1 + views.length) % views.length;
+      switchTab(views[currentViewIndex]);
+    }
+  </script>
+</body>
+</html>
