@@ -1,60 +1,69 @@
-# Panic Button for ESP8266-WiFi
+# 🔴 ESP32 Wi-Fi Panic Button
 
-This is an IoT project that sends alerts to configured recipients using Twilio and SendGrid when a physical button is pressed. The device uses an ESP8266 and Arduino.
+A standalone ESP32-based Wi-Fi panic button that sends an email alert when pressed. Designed for quick deployment with a built-in captive portal for configuration.
 
-## Setup
+## ✨ Features
 
-### Prerequisites
+- Wi-Fi configuration via captive portal
+- SMTP email alerts when panic button is pressed
+- Web-based control panel and config update page
+- EEPROM-stored settings (WiFi and SMTP)
+- Factory reset and test email functions
+- Mobile-friendly responsive UI
 
-You need to have the following installed:
+## 🛠️ Hardware
 
-1. Arduino IDE
-2. Python 3
-3. OpenSSL
-4. ESP8266 board package in Arduino IDE
-5. ESP8266FS plugin for Arduino IDE
-6. Following Arduino Libraries: ESP8266WiFi, WiFiManager, ESP8266HTTPClient, WiFiClientSecure
+- ESP32 (any dev board)
+- Tactile button (connected to GPIO 13)
+- Status LED (connected to GPIO 2)
 
-### Steps
+## 📦 Libraries Used
 
-1. Clone the repository.
-```sh
-git clone https://github.com/RAHB-REALTORS-Association/panic-button-esp.git
-cd panic-button
-```
+- [ESP Mail Client](https://github.com/mobizt/ESP-Mail-Client)
+- WiFi
+- WebServer
+- DNSServer
+- EEPROM
 
-2. Run the Python script that fetches root CA certificates used by Twilio and SendGrid and saves them to the SPIFFS data directory.
-```sh
-python generate_certificates.py
-```
-This will generate `twilio.crt` and `sendgrid.crt` files in the `data` directory inside your Arduino project.
+## 🔌 Pinout
 
-3. Prepare your Twilio API key by concatenating your Twilio SID and Auth token with a colon in between (`SID:Auth token`), and then base64 encoding the result. This will be your TWILIO_API_KEY.
+| Function     | GPIO |
+|--------------|------|
+| Panic Button | 13   |
+| Status LED   | 2    |
 
-4. Modify the `panic-button.ino` file inside the `panic-button` folder to use your actual Twilio and SendGrid API keys and recipient details. Please remember to base64 encode your 
-Twilio SID and Auth token and use this as your TWILIO_API_KEY.
+## 🚀 Getting Started
 
-5. In the Arduino IDE, select your ESP8266 board and the correct COM port.
+1. Flash the firmware to your ESP32.
+2. If no config is stored, the ESP32 starts in **Setup Mode**:
+   - Hosts an AP named `PanicAlarm_Setup`
+   - Access the captive portal to configure Wi-Fi and email
+3. Once configured, the device will connect to the saved network and begin monitoring.
 
-6. Go to "Sketch" -> "Show Sketch Folder". 
+## 🔧 Web Interface
 
-7. In the opened window, navigate up a level and then into the `data` directory.
+### Setup Mode (AP)
 
-8. You should see `twilio.crt` and `sendgrid.crt` files here. These are the root CA certificates fetched by our Python script.
+- `GET /` — Captive portal for config
+- `POST /setup` — Submit config
 
-9. Return to Arduino IDE, go to "Tools" -> "ESP8266 Sketch Data Upload". This will upload the contents of the data directory (the CA certificates) to your ESP8266's filesystem.
+### Normal Mode (STA)
 
-10. After uploading the certificates, go to "Sketch" -> "Upload" to compile and upload the sketch to the ESP8266.
+- `GET /` — Main status page
+- `GET /config` — Config update form
+- `POST /update` — Save updated config
+- `GET /test` — Send a test email
+- `GET /reset` — Factory reset interface
 
-## Operation
+## 🧪 Testing
 
-Once the device starts up, it will try to connect to the WiFi network. If it can't connect to a known network, it will start an access point called "AutoConnectAP". You can connect to 
-this AP and configure your WiFi credentials.
+- Press the hardware button to trigger an alarm.
+- Use `/test` from the browser to simulate an alert.
 
-When you press the panic button, the device will send alerts to all configured recipients via Twilio and SendGrid.
+## 🔁 Resetting
 
-## Reset
+Visit `/reset`, confirm, and the device will wipe config and restart in setup mode.
 
-If you want to change the WiFi credentials, keep the reset button pressed for 5 seconds. This will reset the stored WiFi credentials and restart the device. After restart, you can 
-configure new WiFi credentials as described above.
+## 📄 License
 
+GPLv3 – see [LICENSE](LICENSE) for details.
