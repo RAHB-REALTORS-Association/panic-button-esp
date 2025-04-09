@@ -1,3 +1,7 @@
+---
+layout: default
+---
+
 # 🔴 ESP32 Wi-Fi Panic Button
 
 A standalone ESP32-based panic button with Wi-Fi config and email alerts via SMTP.
@@ -32,3 +36,7 @@ A standalone ESP32-based panic button with Wi-Fi config and email alerts via SMT
 
 ## License
 GPLv3 – see [GitHub Repo](https://github.com/RAHB-REALTORS-Association/panic-button-esp)
+
+## 🔗 Related Links
+- [GitHub Repo](https://github.com/RAHB-REALTORS-Association/panic-button-esp)
+- [Cornerstone Association of REALTORS®](https://www.cornerstone.inc)
