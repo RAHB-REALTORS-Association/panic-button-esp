@@ -5,224 +5,489 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ESP32 Panic Button Documentation</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
+    :root {
+      --primary: #e74c3c;
+      --secondary: #3498db;
+      --dark: #2c3e50;
+      --light: #ecf0f1;
+      --success: #2ecc71;
+      --text: #333;
+      --text-light: #7f8c8d;
+      --border: #dcdde1;
+      --card-bg: #fff;
+    }
+
+    .dark-mode {
+      --primary: #ff6b6b;
+      --secondary: #5dade2;
+      --dark: #1e272e;
+      --light: #2d3436;
+      --success: #55efc4;
+      --text: #f5f6fa;
+      --text-light: #dcdde1;
+      --border: #4b4b4b;
+      --card-bg: #2d3436;
+    }
+
+    * {
       margin: 0;
       padding: 0;
-      background: #f9f9f9;
-      color: #333;
-      transition: background 0.3s, color 0.3s;
+      box-sizing: border-box;
     }
-    header, main, footer {
-      max-width: 960px;
+
+    body {
+      font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background-color: var(--light);
+      color: var(--text);
+      line-height: 1.6;
+      transition: all 0.3s ease;
+    }
+
+    .container {
+      max-width: 1100px;
       margin: 0 auto;
-      padding: 20px;
+      padding: 0 20px;
     }
+
+    /* Header Styles */
     header {
-      background: #4CAF50;
+      background-color: var(--primary);
       color: white;
-      padding: 40px 20px;
+      padding: 2rem 0;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .header-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
       text-align: center;
     }
-    header h1 {
-      margin: 0;
-      font-size: 2.5rem;
+
+    .header-content h1 {
+      font-size: 2.8rem;
+      margin-bottom: 1rem;
+      font-weight: 700;
     }
+
+    .header-content p {
+      font-size: 1.2rem;
+      max-width: 600px;
+      opacity: 0.9;
+    }
+
+    /* Navigation */
     nav {
-      background-color: #333;
-      color: white;
+      background-color: var(--dark);
+      padding: 1rem 0;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .nav-container {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 10px 20px;
     }
-    nav a {
+
+    .nav-links a {
       color: white;
       text-decoration: none;
-      margin-right: 15px;
+      margin-right: 1.5rem;
+      font-weight: 500;
+      transition: opacity 0.3s;
     }
-    nav .toggle {
-      cursor: pointer;
-      background: none;
-      border: 1px solid white;
-      padding: 5px 10px;
+
+    .nav-links a:hover {
+      opacity: 0.8;
+    }
+
+    .theme-toggle {
+      background-color: transparent;
+      border: 2px solid white;
       color: white;
-      border-radius: 5px;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.3s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .theme-toggle:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Main Content */
+    main {
+      padding: 3rem 0;
+    }
+
+    section {
+      background-color: var(--card-bg);
+      border-radius: 8px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    }
+
+    h2 {
+      font-size: 1.8rem;
+      color: var(--primary);
+      margin-bottom: 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    ul, ol {
+      padding-left: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+
+    a {
+      color: var(--secondary);
+      text-decoration: none;
+      transition: color 0.3s;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    code, pre {
+      background-color: rgba(0, 0, 0, 0.05);
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-family: 'Consolas', 'Monaco', monospace;
       font-size: 0.9rem;
     }
-    section {
-      margin-top: 40px;
-    }
-    h2 {
-      color: #4CAF50;
-      border-bottom: 2px solid #ddd;
-      padding-bottom: 5px;
-    }
-    code, pre {
-      background-color: #eee;
-      padding: 5px;
-      border-radius: 5px;
-    }
+
+    /* Table Styles */
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 10px;
-    }
-    table, th, td {
-      border: 1px solid #ccc;
-    }
-    th, td {
-      padding: 10px;
-      text-align: left;
-    }
-    .simulator-frame {
-      margin-top: 40px;
-      border: 1px solid #ccc;
-      border-radius: 10px;
+      margin: 1rem 0;
+      border-radius: 4px;
       overflow: hidden;
     }
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.8rem;
+      text-align: left;
+    }
+
+    th {
+      background-color: rgba(0, 0, 0, 0.05);
+      font-weight: 600;
+    }
+
+    /* Simulator Frame */
+    .simulator-frame {
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      margin: 2rem 0;
+    }
+
     iframe {
       width: 100%;
-      height: 700px;
+      height: 650px;
       border: none;
     }
+
+    /* Footer */
     footer {
       text-align: center;
-      font-size: 0.9rem;
-      color: #777;
-      margin-top: 40px;
-      border-top: 1px solid #ddd;
-      padding-top: 20px;
+      padding: 2rem 0;
+      color: var(--text-light);
+      border-top: 1px solid var(--border);
+      margin-top: 2rem;
     }
-    body.dark-mode {
-      background-color: #121212;
-      color: #eee;
+
+    .heart {
+      color: var(--primary);
     }
-    body.dark-mode nav, body.dark-mode header {
-      background-color: #222;
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .header-content h1 {
+        font-size: 2.2rem;
+      }
+      
+      .nav-container {
+        flex-direction: column;
+        gap: 1rem;
+      }
+      
+      .nav-links {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      
+      .nav-links a {
+        margin: 0.5rem;
+      }
+      
+      section {
+        padding: 1.5rem;
+      }
     }
-    body.dark-mode nav a,
-    body.dark-mode .toggle,
-    body.dark-mode header {
-      color: #eee;
+
+    /* Feature Cards */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin-top: 1.5rem;
     }
-    body.dark-mode table,
-    body.dark-mode th,
-    body.dark-mode td {
-      border-color: #444;
+
+    .feature-card {
+      background-color: rgba(0, 0, 0, 0.02);
+      border-radius: 6px;
+      padding: 1.2rem;
+      border-left: 4px solid var(--primary);
     }
-    body.dark-mode code, body.dark-mode pre {
-      background-color: #333;
-      color: #eee;
+
+    .feature-card h3 {
+      margin-bottom: 0.5rem;
+      color: var(--dark);
+    }
+
+    /* Button Styles */
+    .btn {
+      display: inline-block;
+      background-color: var(--primary);
+      color: white;
+      padding: 0.7rem 1.5rem;
+      border-radius: 4px;
+      margin-top: 1rem;
+      text-decoration: none;
+      transition: background-color 0.3s;
+    }
+
+    .btn:hover {
+      background-color: var(--dark);
+      text-decoration: none;
     }
   </style>
 </head>
 <body>
   <nav>
-    <div>
-      <a href="#">Home</a>
-      <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp" target="_blank">View on GitHub</a>
+    <div class="container nav-container">
+      <div class="nav-links">
+        <a href="#">Home</a>
+        <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp" target="_blank">GitHub</a>
+        <a href="#features">Features</a>
+        <a href="#hardware">Hardware</a>
+        <a href="#getting-started">Getting Started</a>
+      </div>
+      <button class="theme-toggle" onclick="toggleDarkMode()">
+        <span class="mode-icon">🌙</span> 
+        <span class="mode-text">Dark Mode</span>
+      </button>
     </div>
-    <button class="toggle" onclick="toggleDarkMode()">Toggle Dark Mode</button>
   </nav>
 
   <header>
-    <h1>🔴 ESP32 Wi-Fi Panic Button</h1>
-    <p>A standalone panic button with email alerts and a slick web UI.</p>
+    <div class="container header-content">
+      <h1>🔴 ESP32 Wi-Fi Panic Button</h1>
+      <p>A standalone emergency alert system with email notifications and an intuitive web interface</p>
+    </div>
   </header>
 
-  <main>
-    <section>
+  <main class="container">
+    <section id="features">
       <h2>✨ Features</h2>
-      <ul>
-        <li>Wi-Fi configuration via captive portal</li>
-        <li>SMTP email alerts when panic button is pressed</li>
-        <li>Web-based control panel and config update page</li>
-        <li>EEPROM-stored settings (WiFi and SMTP)</li>
-        <li>Factory reset and test email functions</li>
-        <li>Mobile-friendly responsive UI</li>
-      </ul>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h3>Wi-Fi Configuration</h3>
+          <p>Easy setup with a user-friendly captive portal for network configuration</p>
+        </div>
+        <div class="feature-card">
+          <h3>Email Alerts</h3>
+          <p>Sends instant SMTP email notifications when the panic button is activated</p>
+        </div>
+        <div class="feature-card">
+          <h3>Web Control Panel</h3>
+          <p>Intuitive dashboard for monitoring status and updating configuration</p>
+        </div>
+        <div class="feature-card">
+          <h3>Persistent Settings</h3>
+          <p>EEPROM storage for Wi-Fi and SMTP configurations that survive power cycles</p>
+        </div>
+        <div class="feature-card">
+          <h3>Testing & Reset</h3>
+          <p>Built-in functions for sending test emails and performing factory resets</p>
+        </div>
+        <div class="feature-card">
+          <h3>Mobile-Friendly</h3>
+          <p>Responsive UI that works seamlessly on smartphones and tablets</p>
+        </div>
+      </div>
     </section>
 
-    <section>
-      <h2>🛠️ Hardware</h2>
+    <section id="hardware">
+      <h2>🛠️ Hardware Requirements</h2>
       <ul>
-        <li>ESP32 (any dev board)</li>
-        <li>Tactile button (connected to GPIO 13)</li>
-        <li>Status LED (connected to GPIO 2)</li>
+        <li><strong>Microcontroller:</strong> ESP32 (any development board)</li>
+        <li><strong>Input:</strong> Tactile button (connected to GPIO 13)</li>
+        <li><strong>Indicator:</strong> Status LED (connected to GPIO 2)</li>
+        <li><strong>Power Supply:</strong> USB or battery powered</li>
       </ul>
-    </section>
-
-    <section>
-      <h2>📦 Libraries Used</h2>
-      <ul>
-        <li><a href="https://github.com/mobizt/ESP-Mail-Client" target="_blank">ESP Mail Client</a></li>
-        <li>WiFi</li>
-        <li>WebServer</li>
-        <li>DNSServer</li>
-        <li>EEPROM</li>
-      </ul>
-    </section>
-
-    <section>
-      <h2>🔌 Pinout</h2>
+      
+      <h3 style="margin-top: 1.5rem; color: var(--dark);">Pinout Configuration</h3>
       <table>
-        <thead><tr><th>Function</th><th>GPIO</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>GPIO Pin</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
         <tbody>
-          <tr><td>Panic Button</td><td>13</td></tr>
-          <tr><td>Status LED</td><td>2</td></tr>
+          <tr>
+            <td>Panic Button</td>
+            <td>13</td>
+            <td>Active LOW (connect to GND when pressed)</td>
+          </tr>
+          <tr>
+            <td>Status LED</td>
+            <td>2</td>
+            <td>Indicates system status</td>
+          </tr>
         </tbody>
       </table>
     </section>
 
-    <section>
+    <section id="libraries">
+      <h2>📦 Dependencies</h2>
+      <p>This project relies on the following libraries:</p>
+      <ul>
+        <li><a href="https://github.com/mobizt/ESP-Mail-Client" target="_blank">ESP Mail Client</a> - For sending email alerts</li>
+        <li><strong>WiFi</strong> - For network connectivity</li>
+        <li><strong>WebServer</strong> - For hosting the control panel interface</li>
+        <li><strong>DNSServer</strong> - For the captive portal functionality</li>
+        <li><strong>EEPROM</strong> - For persistent storage of settings</li>
+      </ul>
+      
+      <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp" class="btn" target="_blank">View Project on GitHub</a>
+    </section>
+
+    <section id="getting-started">
       <h2>🚀 Getting Started</h2>
       <ol>
-        <li>Flash the firmware to your ESP32.</li>
-        <li>If no config is stored, the ESP32 starts in <strong>Setup Mode</strong>:
+        <li><strong>Flash the Firmware:</strong> Upload the project code to your ESP32 using the Arduino IDE or PlatformIO.</li>
+        <li><strong>Initial Setup:</strong> When first powered on, the ESP32 will enter Setup Mode:
           <ul>
-            <li>Hosts an AP named <code>PanicAlarm_Setup</code></li>
-            <li>Access the captive portal to configure Wi-Fi and email</li>
+            <li>The device creates a Wi-Fi access point named <code>PanicAlarm_Setup</code></li>
+            <li>Connect to this network with your smartphone or computer</li>
+            <li>A captive portal should automatically open (or navigate to <code>192.168.4.1</code>)</li>
+            <li>Enter your Wi-Fi credentials and email settings</li>
           </ul>
         </li>
-        <li>Once configured, the device will connect to the saved network and begin monitoring.</li>
+        <li><strong>Normal Operation:</strong> After configuration, the device will:
+          <ul>
+            <li>Connect to your Wi-Fi network</li>
+            <li>Begin monitoring for button presses</li>
+            <li>Show operational status via the LED indicator</li>
+          </ul>
+        </li>
+        <li><strong>Accessing the Interface:</strong> Find the device's IP address from your router or serial monitor, then access it via a web browser.</li>
       </ol>
     </section>
 
-    <section>
+    <section id="simulator">
       <h2>🔧 Web Interface Simulator</h2>
-      <p>Try out the full UI experience below:</p>
+      <p>Try out the control panel interface with this interactive simulator:</p>
       <div class="simulator-frame">
         <iframe src="simulator.html"></iframe>
       </div>
     </section>
 
-    <section>
-      <h2>🧪 Testing</h2>
+    <section id="usage">
+      <h2>📱 Usage Instructions</h2>
+      
+      <h3 style="margin-top: 1rem; color: var(--dark);">Triggering an Alert</h3>
       <ul>
-        <li>Press the hardware button to trigger an alarm.</li>
-        <li>Use <code>/test</code> from the browser to simulate an alert.</li>
+        <li><strong>Hardware Method:</strong> Press the physical button connected to GPIO 13</li>
+        <li><strong>Software Method:</strong> Visit <code>http://[device-ip]/test</code> in a browser</li>
       </ul>
+      
+      <h3 style="margin-top: 1rem; color: var(--dark);">Factory Reset</h3>
+      <p>To clear all stored settings and return to setup mode:</p>
+      <ol>
+        <li>Navigate to <code>http://[device-ip]/reset</code> in your browser</li>
+        <li>Confirm the reset when prompted</li>
+        <li>The device will restart and create the setup access point</li>
+      </ol>
+      
+      <h3 style="margin-top: 1rem; color: var(--dark);">LED Status Indicators</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Pattern</th>
+            <th>Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Solid On</td>
+            <td>Alert triggered / sending email</td>
+          </tr>
+          <tr>
+            <td>Slow Blink</td>
+            <td>Setup mode active</td>
+          </tr>
+          <tr>
+            <td>Fast Blink</td>
+            <td>Error condition</td>
+          </tr>
+          <tr>
+            <td>Brief Flash</td>
+            <td>Normal operation heartbeat</td>
+          </tr>
+        </tbody>
+      </table>
     </section>
 
-    <section>
-      <h2>🔁 Resetting</h2>
-      <p>Visit <code>/reset</code>, confirm, and the device will wipe config and restart in setup mode.</p>
-    </section>
-
-    <section>
+    <section id="license">
       <h2>📄 License</h2>
-      <p>GPLv3 – see <a href="LICENSE">LICENSE</a> for details.</p>
+      <p>This project is released under the GNU General Public License v3.0 (GPLv3) – see the <a href="LICENSE">LICENSE</a> file for full details.</p>
+      <p>You are free to use, modify, and distribute this software, provided that you keep the same license.</p>
     </section>
   </main>
 
-  <footer>
-    Made with ❤️ by Justin Hayes. Simulator UI and documentation powered by GitHub Pages.
+  <footer class="container">
+    <p>Made with <span class="heart">AI 🤖</span> at <a href="https://www.cornerstone.inc">Cornerstone Association of REALTORS®</a></p>
   </footer>
 
   <script>
     function toggleDarkMode() {
-      document.body.classList.toggle('dark-mode');
+      const body = document.body;
+      const modeIcon = document.querySelector('.mode-icon');
+      const modeText = document.querySelector('.mode-text');
+      
+      body.classList.toggle('dark-mode');
+      
+      if (body.classList.contains('dark-mode')) {
+        modeIcon.textContent = '☀️';
+        modeText.textContent = 'Light Mode';
+      } else {
+        modeIcon.textContent = '🌙';
+        modeText.textContent = 'Dark Mode';
+      }
     }
   </script>
 </body>
