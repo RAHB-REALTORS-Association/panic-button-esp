@@ -1,92 +1,30 @@
+#include "network.h"
+#include "config.h"
+#include "storage.h"
+#include "notifications.h"
 #include <WiFi.h>
 #include <DNSServer.h>
 #include <WebServer.h>
+#include <ESP.h>
 #include <EEPROM.h>
-#include <ESP_Mail_Client.h>
 
-// Constants
-#define EEPROM_SIZE 512
-#define CONFIG_FLAG_ADDR 0
-#define SSID_ADDR 10
-#define PASS_ADDR 80
-#define EMAIL_SERVER_ADDR 150
-#define EMAIL_PORT_ADDR 220
-#define EMAIL_USER_ADDR 224
-#define EMAIL_PASS_ADDR 294
-#define EMAIL_RECIPIENT_ADDR 364
-#define BUTTON_PIN 13
-#define LED_PIN 2
-#define DNS_PORT 53
-#define WEBSERVER_PORT 80
-#define CONFIG_FLAG 0xAA
-
-// Global variables
-bool isConfigMode = false;
-String configSSID = "PanicAlarm_Setup";
-const char* configPassword = "setupalarm"; // Optional: Set a password for the AP mode
+// Global network variables
+bool configMode = false;
+String configSSID = DEFAULT_CONFIG_SSID;
+const char* configPassword = DEFAULT_CONFIG_PASSWORD;
 String wifi_ssid = "";
 String wifi_password = "";
-String email_server = "";
-int email_port = 0;
-String email_username = "";
-String email_password = "";
-String email_recipient = "";
-bool alarmTriggered = false;
-unsigned long lastDebounceTime = 0;
-unsigned long debounceDelay = 50;
-int buttonState = HIGH;
-int lastButtonState = HIGH;
-
 WebServer server(WEBSERVER_PORT);
 DNSServer dnsServer;
-SMTPSession smtp;
 
-// Setup function
-void setup() {
-  Serial.begin(115200);
-  
-  // Initialize pins
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
-  
-  // Initialize EEPROM
-  EEPROM.begin(EEPROM_SIZE);
-  
-  // Check if device is configured
-  if (EEPROM.read(CONFIG_FLAG_ADDR) != CONFIG_FLAG) {
-    Serial.println("No configuration found. Starting setup mode...");
-    startConfigMode();
-  } else {
-    // Load saved configuration
-    loadConfig();
-    
-    // Try to connect to WiFi
-    if (connectToWiFi()) {
-      Serial.println("Connected to WiFi. Starting normal operation.");
-      blinkLED(3, 200); // Success indicator
-    } else {
-      Serial.println("Failed to connect to WiFi. Starting setup mode...");
-      startConfigMode();
-    }
-  }
-}
-
-// Main loop
-void loop() {
-  if (isConfigMode) {
-    // Handle DNS and web server in config mode
-    dnsServer.processNextRequest();
-    server.handleClient();
-  } else {
-    // Normal operation mode
-    checkButton();
-  }
+// Check if in configuration mode
+bool isInConfigMode() {
+  return configMode;
 }
 
 // Start configuration mode with AP and captive portal
 void startConfigMode() {
-  isConfigMode = true;
+  configMode = true;
   
   // Set up Access Point
   WiFi.mode(WIFI_AP);
@@ -99,10 +37,7 @@ void startConfigMode() {
   dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
   
   // Set up web server routes
-  server.on("/", HTTP_GET, handleRoot);
-  server.on("/setup", HTTP_POST, handleSetup);
-  server.on("/style.css", HTTP_GET, handleCss);
-  server.onNotFound(handleRoot); // Captive portal redirect
+  setupConfigWebRoutes();
   
   server.begin();
   Serial.println("HTTP server started");
@@ -134,13 +69,11 @@ bool connectToWiFi() {
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
     
+    // Enable WiFi power saving for battery life
+    WiFi.setSleep(true);
+    
     // Set up web server routes for normal operation
-    server.on("/", HTTP_GET, handleNormalRoot);
-    server.on("/config", HTTP_GET, handleConfigPage);
-    server.on("/update", HTTP_POST, handleUpdate);
-    server.on("/test", HTTP_GET, handleTestEmail);
-    server.on("/reset", HTTP_GET, handleReset);
-    server.on("/style.css", HTTP_GET, handleCss);
+    setupNormalWebRoutes();
     
     server.begin();
     return true;
@@ -151,221 +84,36 @@ bool connectToWiFi() {
   }
 }
 
-// Check button state and send alarm if pressed
-void checkButton() {
-  server.handleClient(); // Continue handling web requests
-  
-  int reading = digitalRead(BUTTON_PIN);
-  
-  if (reading != lastButtonState) {
-    lastDebounceTime = millis();
-  }
-  
-  if ((millis() - lastDebounceTime) > debounceDelay) {
-    if (reading != buttonState) {
-      buttonState = reading;
-      
-      if (buttonState == LOW) { // Button pressed (active LOW with pull-up)
-        Serial.println("Panic button pressed!");
-        triggerAlarm();
-      }
-    }
-  }
-  
-  lastButtonState = reading;
+// Handle DNS and WebServer in config mode
+void handleConfigMode() {
+  dnsServer.processNextRequest();
+  server.handleClient();
 }
 
-// Trigger the alarm and send notification
-void triggerAlarm() {
-  if (alarmTriggered) return; // Prevent multiple triggers in rapid succession
-  
-  alarmTriggered = true;
-  digitalWrite(LED_PIN, HIGH); // Turn on LED to indicate alarm
-  
-  if (sendEmailAlert()) {
-    Serial.println("Alarm notification sent successfully");
-    // Blink to indicate success
-    for (int i = 0; i < 5; i++) {
-      digitalWrite(LED_PIN, LOW);
-      delay(100);
-      digitalWrite(LED_PIN, HIGH);
-      delay(100);
-    }
-  } else {
-    Serial.println("Failed to send alarm notification");
-    // Different blink pattern for failure
-    for (int i = 0; i < 2; i++) {
-      digitalWrite(LED_PIN, LOW);
-      delay(500);
-      digitalWrite(LED_PIN, HIGH);
-      delay(500);
-    }
-  }
-  
-  // Reset alarm state after delay
-  delay(5000);
-  digitalWrite(LED_PIN, LOW);
-  alarmTriggered = false;
+// Handle WebServer in normal operation mode
+void handleWebRequests() {
+  server.handleClient();
 }
 
-// Send email alert
-bool sendEmailAlert() {
-  if (email_server.length() == 0 || email_recipient.length() == 0) {
-    Serial.println("Email not configured");
-    return false;
-  }
-  
-  ESP_Mail_Session session;
-  session.server.host_name = email_server.c_str();
-  session.server.port = email_port;
-  session.login.email = email_username.c_str();
-  session.login.password = email_password.c_str();
-  
-  SMTP_Message message;
-  message.sender.name = "Panic Alarm";
-  message.sender.email = email_username.c_str();
-  message.subject = "PANIC ALARM TRIGGERED";
-  message.addRecipient("User", email_recipient.c_str());
-  
-  String htmlMsg = "<div style='color:red;'><h1>PANIC ALARM TRIGGERED</h1><p>The panic button has been activated.</p>"
-                   "<p>Time: " + String(millis() / 1000) + " seconds since device boot</p>"
-                   "<p>Device IP: " + WiFi.localIP().toString() + "</p></div>";
-  message.html.content = htmlMsg.c_str();
-  
-  if (!smtp.connect(&session)) {
-    Serial.println("Error connecting to SMTP server");
-    return false;
-  }
-  
-  if (!MailClient.sendMail(&smtp, &message)) {
-    Serial.println("Error sending email: " + smtp.errorReason());
-    return false;
-  }
-  
-  return true;
+// Set up web routes for configuration mode
+void setupConfigWebRoutes() {
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/setup", HTTP_POST, handleSetup);
+  server.on("/style.css", HTTP_GET, handleCss);
+  server.onNotFound(handleRoot); // Captive portal redirect
 }
 
-// Load configuration from EEPROM
-void loadConfig() {
-  // Read WiFi SSID
-  char buffer[70];
-  for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(SSID_ADDR + i);
-  }
-  wifi_ssid = String(buffer);
-  
-  // Read WiFi password
-  memset(buffer, 0, 70);
-  for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(PASS_ADDR + i);
-  }
-  wifi_password = String(buffer);
-  
-  // Read email server
-  memset(buffer, 0, 70);
-  for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(EMAIL_SERVER_ADDR + i);
-  }
-  email_server = String(buffer);
-  
-  // Read email port
-  email_port = EEPROM.read(EMAIL_PORT_ADDR) + (EEPROM.read(EMAIL_PORT_ADDR + 1) << 8) + 
-               (EEPROM.read(EMAIL_PORT_ADDR + 2) << 16) + (EEPROM.read(EMAIL_PORT_ADDR + 3) << 24);
-  
-  // Read email username
-  memset(buffer, 0, 70);
-  for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(EMAIL_USER_ADDR + i);
-  }
-  email_username = String(buffer);
-  
-  // Read email password
-  memset(buffer, 0, 70);
-  for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(EMAIL_PASS_ADDR + i);
-  }
-  email_password = String(buffer);
-  
-  // Read email recipient
-  memset(buffer, 0, 70);
-  for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(EMAIL_RECIPIENT_ADDR + i);
-  }
-  email_recipient = String(buffer);
-  
-  // Print loaded configuration
-  Serial.println("Loaded configuration:");
-  Serial.println("WiFi SSID: " + wifi_ssid);
-  Serial.println("Email server: " + email_server);
-  Serial.println("Email port: " + String(email_port));
-  Serial.println("Email username: " + email_username);
-  Serial.println("Email recipient: " + email_recipient);
+// Set up web routes for normal operation
+void setupNormalWebRoutes() {
+  server.on("/", HTTP_GET, handleNormalRoot);
+  server.on("/config", HTTP_GET, handleConfigPage);
+  server.on("/update", HTTP_POST, handleUpdate);
+  server.on("/test", HTTP_GET, handleTestEmail);
+  server.on("/reset", HTTP_GET, handleReset);
+  server.on("/style.css", HTTP_GET, handleCss);
 }
 
-// Save configuration to EEPROM
-void saveConfig(String ssid, String password, String server, int port, 
-                String username, String emailpass, String recipient) {
-  // Save WiFi SSID
-  for (unsigned int i = 0; i < ssid.length(); i++) {
-    EEPROM.write(SSID_ADDR + i, ssid[i]);
-  }
-  EEPROM.write(SSID_ADDR + ssid.length(), 0); // Null terminator
-  
-  // Save WiFi password
-  for (unsigned int i = 0; i < password.length(); i++) {
-    EEPROM.write(PASS_ADDR + i, password[i]);
-  }
-  EEPROM.write(PASS_ADDR + password.length(), 0); // Null terminator
-  
-  // Save email server
-  for (unsigned int i = 0; i < server.length(); i++) {
-    EEPROM.write(EMAIL_SERVER_ADDR + i, server[i]);
-  }
-  EEPROM.write(EMAIL_SERVER_ADDR + server.length(), 0); // Null terminator
-  
-  // Save email port
-  EEPROM.write(EMAIL_PORT_ADDR, port & 0xFF);
-  EEPROM.write(EMAIL_PORT_ADDR + 1, (port >> 8) & 0xFF);
-  EEPROM.write(EMAIL_PORT_ADDR + 2, (port >> 16) & 0xFF);
-  EEPROM.write(EMAIL_PORT_ADDR + 3, (port >> 24) & 0xFF);
-  
-  // Save email username
-  for (unsigned int i = 0; i < username.length(); i++) {
-    EEPROM.write(EMAIL_USER_ADDR + i, username[i]);
-  }
-  EEPROM.write(EMAIL_USER_ADDR + username.length(), 0); // Null terminator
-  
-  // Save email password
-  for (unsigned int i = 0; i < emailpass.length(); i++) {
-    EEPROM.write(EMAIL_PASS_ADDR + i, emailpass[i]);
-  }
-  EEPROM.write(EMAIL_PASS_ADDR + emailpass.length(), 0); // Null terminator
-  
-  // Save email recipient
-  for (unsigned int i = 0; i < recipient.length(); i++) {
-    EEPROM.write(EMAIL_RECIPIENT_ADDR + i, recipient[i]);
-  }
-  EEPROM.write(EMAIL_RECIPIENT_ADDR + recipient.length(), 0); // Null terminator
-  
-  // Set configuration flag
-  EEPROM.write(CONFIG_FLAG_ADDR, CONFIG_FLAG);
-  
-  // Commit changes to EEPROM
-  EEPROM.commit();
-  
-  Serial.println("Configuration saved");
-}
-
-void blinkLED(int times, int delayms) {
-  for (int i = 0; i < times; i++) {
-    digitalWrite(LED_PIN, HIGH);
-    delay(delayms);
-    digitalWrite(LED_PIN, LOW);
-    delay(delayms);
-  }
-}
-
-// Web handlers
+// Handle config mode root page
 void handleRoot() {
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Panic Alarm Setup</title>"
@@ -402,6 +150,7 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
+// Handle setup form submission
 void handleSetup() {
   String ssid = server.arg("ssid");
   String password = server.arg("password");
@@ -412,7 +161,8 @@ void handleSetup() {
   String email_recipient = server.arg("email_recipient");
   
   // Save configuration
-  saveConfig(ssid, password, email_server, email_port, email_username, email_password, email_recipient);
+  saveConfig(ssid, password, email_server, email_port, 
+            email_username, email_password, email_recipient);
   
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Setup Complete</title>"
@@ -434,6 +184,7 @@ void handleSetup() {
   ESP.restart();
 }
 
+// Handle normal operation root page
 void handleNormalRoot() {
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Panic Alarm Control</title>"
@@ -446,18 +197,24 @@ void handleNormalRoot() {
                 "<div class='status'>"
                 "<p><strong>WiFi SSID:</strong> " + wifi_ssid + "</p>"
                 "<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>"
-                "<p><strong>Email Recipient:</strong> " + email_recipient + "</p>"
-                "</div>"
-                "<div class='buttons'>"
-                "<a href='/config' class='button'>Update Configuration</a>"
-                "<a href='/test' class='button test'>Test Alarm</a>"
-                "<a href='/reset' class='button reset'>Factory Reset</a>"
-                "</div>"
-                "</div></body></html>";
+                "<p><strong>Email Recipient:</strong> " + getEmailRecipient() + "</p>";
+  
+  #if HAS_BATTERY_MONITORING
+  html += "<p><strong>Battery Voltage:</strong> " + String(getBatteryVoltage()) + "V</p>";
+  #endif
+  
+  html += "</div>"
+          "<div class='buttons'>"
+          "<a href='/config' class='button'>Update Configuration</a>"
+          "<a href='/test' class='button test'>Test Alarm</a>"
+          "<a href='/reset' class='button reset'>Factory Reset</a>"
+          "</div>"
+          "</div></body></html>";
   
   server.send(200, "text/html", html);
 }
 
+// Handle configuration page
 void handleConfigPage() {
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Update Configuration</title>"
@@ -477,15 +234,15 @@ void handleConfigPage() {
                 "<div class='section'>"
                 "<h2>Email Settings</h2>"
                 "<label for='email_server'>SMTP Server:</label>"
-                "<input type='text' id='email_server' name='email_server' value='" + email_server + "' required><br>"
+                "<input type='text' id='email_server' name='email_server' value='" + getEmailServer() + "' required><br>"
                 "<label for='email_port'>SMTP Port:</label>"
-                "<input type='number' id='email_port' name='email_port' value='" + String(email_port) + "' required><br>"
+                "<input type='number' id='email_port' name='email_port' value='" + String(getEmailPort()) + "' required><br>"
                 "<label for='email_username'>Email Username:</label>"
-                "<input type='text' id='email_username' name='email_username' value='" + email_username + "' required><br>"
+                "<input type='text' id='email_username' name='email_username' value='" + getEmailUsername() + "' required><br>"
                 "<label for='email_password'>Email Password:</label>"
-                "<input type='password' id='email_password' name='email_password' value='" + email_password + "' required><br>"
+                "<input type='password' id='email_password' name='email_password' value='" + getEmailPassword() + "' required><br>"
                 "<label for='email_recipient'>Recipient Email:</label>"
-                "<input type='email' id='email_recipient' name='email_recipient' value='" + email_recipient + "' required><br>"
+                "<input type='email' id='email_recipient' name='email_recipient' value='" + getEmailRecipient() + "' required><br>"
                 "</div>"
                 "<input type='submit' value='Update Configuration'>"
                 "</form>"
@@ -495,6 +252,7 @@ void handleConfigPage() {
   server.send(200, "text/html", html);
 }
 
+// Handle configuration update
 void handleUpdate() {
   String ssid = server.arg("ssid");
   String password = server.arg("password");
@@ -505,7 +263,8 @@ void handleUpdate() {
   String email_recipient = server.arg("email_recipient");
   
   // Save configuration
-  saveConfig(ssid, password, email_server, email_port, email_username, email_password, email_recipient);
+  saveConfig(ssid, password, email_server, email_port, 
+            email_username, email_password, email_recipient);
   
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Configuration Updated</title>"
@@ -525,6 +284,7 @@ void handleUpdate() {
   loadConfig();
 }
 
+// Handle test email page
 void handleTestEmail() {
   String result;
   if (sendEmailAlert()) {
@@ -548,6 +308,7 @@ void handleTestEmail() {
   server.send(200, "text/html", html);
 }
 
+// Handle factory reset page
 void handleReset() {
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Factory Reset</title>"
@@ -594,6 +355,7 @@ void handleReset() {
   }
 }
 
+// Handle CSS stylesheet
 void handleCss() {
   String css = "body {"
                "  font-family: Arial, sans-serif;"

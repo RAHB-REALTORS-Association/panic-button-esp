@@ -33,4 +33,5 @@
 
 .DS_Store
 
-/panic-button/data/
+# PlatformIO files
+.pio/
