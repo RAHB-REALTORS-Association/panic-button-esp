@@ -20,20 +20,10 @@
 // Board-specific configurations
 #if defined(ESP32_C6)
     // FireBeetle ESP32-C6 config
-    #define BUTTON_PIN 4
-    #define LED_PIN 15
-    #define BATTERY_PIN 0  // A0 on FireBeetle ESP32-C6
-    #define HAS_BATTERY_MONITORING true
-    #define BATT_SAMPLES 10
-    #define uS_TO_S_FACTOR 1000000
-    #define TIME_TO_SLEEP 60
-    // For ESP32-C6 deep sleep
-    #define ESP_EXT1_WAKEUP_ANY_LOW ESP_EXT1_WAKEUP_ALL_LOW
+    #include "board_config/firebeetle_config.h"
 #else
     // Standard ESP32 config
-    #define BUTTON_PIN 13
-    #define LED_PIN 2
-    #define HAS_BATTERY_MONITORING false
+    #include "board_config/esp32_config.h"
 #endif
 
 // Default values

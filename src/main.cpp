@@ -138,3 +138,7 @@ void goToDeepSleep() {
   esp_deep_sleep_start();
 }
 #endif
+
+extern "C" void lwip_hook_ip6_input(void) {
+  // No-op implementation to satisfy linker
+}
