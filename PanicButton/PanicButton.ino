@@ -3,9 +3,10 @@
 #include <WebServer.h>
 #include <EEPROM.h>
 #include <ESP_Mail_Client.h>
+#include <HTTPClient.h>
 
 // Constants
-#define EEPROM_SIZE 512
+#define EEPROM_SIZE 612  // Increased to accommodate webhook URL
 #define CONFIG_FLAG_ADDR 0
 #define SSID_ADDR 10
 #define PASS_ADDR 80
@@ -14,6 +15,7 @@
 #define EMAIL_USER_ADDR 224
 #define EMAIL_PASS_ADDR 294
 #define EMAIL_RECIPIENT_ADDR 364
+#define WEBHOOK_URL_ADDR 434  // New address for webhook URL
 #define BUTTON_PIN 4    // FireBeetle suitable GPIO pin
 #define LED_PIN 15      // FireBeetle's onboard LED
 #define BATTERY_PIN 0   // A0 on FireBeetle ESP32-C6
@@ -35,6 +37,7 @@ int email_port = 0;
 String email_username = "";
 String email_password = "";
 String email_recipient = "";
+String webhook_url = "";  // New variable for webhook URL
 bool alarmTriggered = false;
 unsigned long lastDebounceTime = 0;
 unsigned long debounceDelay = 50;
@@ -115,7 +118,7 @@ void checkBatteryStatus() {
     
     if (isLowBattery()) {
       blinkLED(5, 50); // Fast blink to indicate low battery
-      // Optionally send low battery notification email
+      // Optionally send low battery notification
       if (WiFi.status() == WL_CONNECTED) {
         sendLowBatteryAlert();
       }
@@ -196,7 +199,7 @@ bool connectToWiFi() {
     server.on("/", HTTP_GET, handleNormalRoot);
     server.on("/config", HTTP_GET, handleConfigPage);
     server.on("/update", HTTP_POST, handleUpdate);
-    server.on("/test", HTTP_GET, handleTestEmail);
+    server.on("/test", HTTP_GET, handleTestAlert);
     server.on("/reset", HTTP_GET, handleReset);
     server.on("/style.css", HTTP_GET, handleCss);
     
@@ -238,8 +241,30 @@ void triggerAlarm() {
   alarmTriggered = true;
   digitalWrite(LED_PIN, HIGH); // Turn on LED to indicate alarm
   
-  if (sendEmailAlert()) {
-    Serial.println("Alarm notification sent successfully");
+  bool notificationSent = false;
+  
+  // Try to send email if configured
+  if (email_recipient.length() > 0) {
+    if (sendEmailAlert()) {
+      Serial.println("Email notification sent successfully");
+      notificationSent = true;
+    } else {
+      Serial.println("Failed to send email notification");
+    }
+  }
+  
+  // Try to send webhook if configured
+  if (webhook_url.length() > 0) {
+    if (sendWebhookAlert()) {
+      Serial.println("Webhook notification sent successfully");
+      notificationSent = true;
+    } else {
+      Serial.println("Failed to send webhook notification");
+    }
+  }
+  
+  // Indicate success or failure
+  if (notificationSent) {
     // Blink to indicate success
     for (int i = 0; i < 5; i++) {
       digitalWrite(LED_PIN, LOW);
@@ -248,7 +273,6 @@ void triggerAlarm() {
       delay(100);
     }
   } else {
-    Serial.println("Failed to send alarm notification");
     // Different blink pattern for failure
     for (int i = 0; i < 2; i++) {
       digitalWrite(LED_PIN, LOW);
@@ -287,7 +311,16 @@ bool sendEmailAlert() {
                    "<p>The panic button has been activated.</p>"
                    "<p>Time: " + String(millis() / 1000) + " seconds since device boot</p>"
                    "<p>Device IP: " + WiFi.localIP().toString() + "</p>"
-                   "<p>Battery voltage: " + String(batteryVoltage) + "V</p></div>";
+                   "<p>Battery voltage: " + String(batteryVoltage) + "V</p>";
+  
+  // Add webhook status without showing the actual URL
+  if (webhook_url.length() > 0) {
+    htmlMsg += "<p>Webhook alerts: Enabled</p>";
+  } else {
+    htmlMsg += "<p>Webhook alerts: Disabled</p>";
+  }
+  
+  htmlMsg += "</div>";
   message.html.content = htmlMsg.c_str();
   
   if (!smtp.connect(&session)) {
@@ -303,8 +336,65 @@ bool sendEmailAlert() {
   return true;
 }
 
-// Send low battery alert email
+// Send webhook alert for panic button press
+bool sendWebhookAlert() {
+  if (webhook_url.length() == 0) {
+    Serial.println("Webhook not configured");
+    return false;
+  }
+  
+  HTTPClient http;
+  http.begin(webhook_url);
+  http.addHeader("Content-Type", "application/json");
+  
+  // Create JSON payload
+  String payload = "{";
+  payload += "\"event\":\"panic_alarm\",";
+  payload += "\"status\":\"triggered\",";
+  payload += "\"device_ip\":\"" + WiFi.localIP().toString() + "\",";
+  payload += "\"battery\":\"" + String(batteryVoltage) + "\",";
+  payload += "\"uptime\":\"" + String(millis() / 1000) + "\"";
+  payload += "}";
+  
+  int httpResponseCode = http.POST(payload);
+  
+  if (httpResponseCode > 0) {
+    String response = http.getString();
+    Serial.println("HTTP Response code: " + String(httpResponseCode));
+    Serial.println("Response: " + response);
+    http.end();
+    return true;
+  } else {
+    Serial.print("Error on sending webhook. Error code: ");
+    Serial.println(httpResponseCode);
+    http.end();
+    return false;
+  }
+}
+
+// Send low battery alert 
 bool sendLowBatteryAlert() {
+  bool notificationSent = false;
+  
+  // Try email if configured
+  if (email_server.length() > 0 && email_recipient.length() > 0) {
+    if (sendLowBatteryEmail()) {
+      notificationSent = true;
+    }
+  }
+  
+  // Try webhook if configured
+  if (webhook_url.length() > 0) {
+    if (sendLowBatteryWebhook()) {
+      notificationSent = true;
+    }
+  }
+  
+  return notificationSent;
+}
+
+// Send low battery alert email
+bool sendLowBatteryEmail() {
   if (email_server.length() == 0 || email_recipient.length() == 0) {
     Serial.println("Email not configured");
     return false;
@@ -326,7 +416,16 @@ bool sendLowBatteryAlert() {
                    "<p>Your panic alarm device is running low on battery.</p>"
                    "<p>Current battery voltage: " + String(batteryVoltage) + "V</p>"
                    "<p>Please replace or recharge the battery soon.</p>"
-                   "<p>Device IP: " + WiFi.localIP().toString() + "</p></div>";
+                   "<p>Device IP: " + WiFi.localIP().toString() + "</p>";
+  
+  // Add webhook status without showing the actual URL
+  if (webhook_url.length() > 0) {
+    htmlMsg += "<p>Webhook alerts: Enabled</p>";
+  } else {
+    htmlMsg += "<p>Webhook alerts: Disabled</p>";
+  }
+  
+  htmlMsg += "</div>";
   message.html.content = htmlMsg.c_str();
   
   if (!smtp.connect(&session)) {
@@ -342,24 +441,60 @@ bool sendLowBatteryAlert() {
   return true;
 }
 
+// Send low battery webhook alert
+bool sendLowBatteryWebhook() {
+  if (webhook_url.length() == 0) {
+    Serial.println("Webhook not configured");
+    return false;
+  }
+  
+  HTTPClient http;
+  http.begin(webhook_url);
+  http.addHeader("Content-Type", "application/json");
+  
+  // Create JSON payload
+  String payload = "{";
+  payload += "\"event\":\"low_battery\",";
+  payload += "\"status\":\"warning\",";
+  payload += "\"device_ip\":\"" + WiFi.localIP().toString() + "\",";
+  payload += "\"battery\":\"" + String(batteryVoltage) + "\",";
+  payload += "\"uptime\":\"" + String(millis() / 1000) + "\"";
+  payload += "}";
+  
+  int httpResponseCode = http.POST(payload);
+  
+  if (httpResponseCode > 0) {
+    String response = http.getString();
+    Serial.println("HTTP Response code: " + String(httpResponseCode));
+    Serial.println("Response: " + response);
+    http.end();
+    return true;
+  } else {
+    Serial.print("Error on sending webhook. Error code: ");
+    Serial.println(httpResponseCode);
+    http.end();
+    return false;
+  }
+}
+
 // Load configuration from EEPROM
 void loadConfig() {
   // Read WiFi SSID
-  char buffer[70];
+  char buffer[100];  // Increased buffer size to handle longer webhook URLs
   for (int i = 0; i < 70; i++) {
     buffer[i] = EEPROM.read(SSID_ADDR + i);
   }
   wifi_ssid = String(buffer);
   
   // Read WiFi password
-  memset(buffer, 0, 70);
+  memset(buffer, 0, 100);
   for (int i = 0; i < 70; i++) {
     buffer[i] = EEPROM.read(PASS_ADDR + i);
   }
   wifi_password = String(buffer);
   
   // Read email server
-  memset(buffer, 0, 70);
+  memset(buffer, 0, 100);
   for (int i = 0; i < 70; i++) {
     buffer[i] = EEPROM.read(EMAIL_SERVER_ADDR + i);
   }
@@ -370,25 +505,32 @@ void loadConfig() {
                (EEPROM.read(EMAIL_PORT_ADDR + 2) << 16) + (EEPROM.read(EMAIL_PORT_ADDR + 3) << 24);
   
   // Read email username
-  memset(buffer, 0, 70);
+  memset(buffer, 0, 100);
   for (int i = 0; i < 70; i++) {
     buffer[i] = EEPROM.read(EMAIL_USER_ADDR + i);
   }
   email_username = String(buffer);
   
   // Read email password
-  memset(buffer, 0, 70);
+  memset(buffer, 0, 100);
   for (int i = 0; i < 70; i++) {
     buffer[i] = EEPROM.read(EMAIL_PASS_ADDR + i);
   }
   email_password = String(buffer);
   
   // Read email recipient
-  memset(buffer, 0, 70);
+  memset(buffer, 0, 100);
   for (int i = 0; i < 70; i++) {
     buffer[i] = EEPROM.read(EMAIL_RECIPIENT_ADDR + i);
   }
   email_recipient = String(buffer);
+  
+  // Read webhook URL
+  memset(buffer, 0, 100);
+  for (int i = 0; i < 100; i++) {  // Allow longer webhook URLs
+    buffer[i] = EEPROM.read(WEBHOOK_URL_ADDR + i);
+  }
+  webhook_url = String(buffer);
   
   // Print loaded configuration
   Serial.println("Loaded configuration:");
@@ -397,11 +539,12 @@ void loadConfig() {
   Serial.println("Email port: " + String(email_port));
   Serial.println("Email username: " + email_username);
   Serial.println("Email recipient: " + email_recipient);
+  Serial.println("Webhook URL configured: " + (webhook_url.length() > 0 ? "Yes" : "No"));
 }
 
 // Save configuration to EEPROM
 void saveConfig(String ssid, String password, String server, int port, 
-                String username, String emailpass, String recipient) {
+                String username, String emailpass, String recipient, String webhook) {
   // Save WiFi SSID
   for (unsigned int i = 0; i < ssid.length(); i++) {
     EEPROM.write(SSID_ADDR + i, ssid[i]);
@@ -443,6 +586,12 @@ void saveConfig(String ssid, String password, String server, int port,
     EEPROM.write(EMAIL_RECIPIENT_ADDR + i, recipient[i]);
   }
   EEPROM.write(EMAIL_RECIPIENT_ADDR + recipient.length(), 0); // Null terminator
+  
+  // Save webhook URL
+  for (unsigned int i = 0; i < webhook.length(); i++) {
+    EEPROM.write(WEBHOOK_URL_ADDR + i, webhook[i]);
+  }
+  EEPROM.write(WEBHOOK_URL_ADDR + webhook.length(), 0); // Null terminator
   
   // Set configuration flag
   EEPROM.write(CONFIG_FLAG_ADDR, CONFIG_FLAG);
@@ -487,20 +636,40 @@ void handleRoot() {
                 "<input type='password' id='password' name='password'><br>"
                 "</div>"
                 "<div class='section'>"
-                "<h2>Email Settings</h2>"
+                "<h2>Notification Settings</h2>"
+                "<p class='note'>Configure at least one notification method (email or webhook)</p>"
+                "<div class='subsection'>"
+                "<h3>Email Settings</h3>"
                 "<label for='email_server'>SMTP Server:</label>"
-                "<input type='text' id='email_server' name='email_server' required><br>"
+                "<input type='text' id='email_server' name='email_server'><br>"
                 "<label for='email_port'>SMTP Port:</label>"
-                "<input type='number' id='email_port' name='email_port' value='587' required><br>"
+                "<input type='number' id='email_port' name='email_port' value='587'><br>"
                 "<label for='email_username'>Email Username:</label>"
-                "<input type='text' id='email_username' name='email_username' required><br>"
+                "<input type='text' id='email_username' name='email_username'><br>"
                 "<label for='email_password'>Email Password:</label>"
-                "<input type='password' id='email_password' name='email_password' required><br>"
+                "<input type='password' id='email_password' name='email_password'><br>"
                 "<label for='email_recipient'>Recipient Email:</label>"
-                "<input type='email' id='email_recipient' name='email_recipient' required><br>"
+                "<input type='email' id='email_recipient' name='email_recipient'><br>"
                 "</div>"
-                "<input type='submit' value='Save Configuration'>"
+                "<div class='subsection'>"
+                "<h3>Webhook Settings</h3>"
+                "<label for='webhook_url'>Webhook URL:</label>"
+                "<input type='text' id='webhook_url' name='webhook_url' placeholder='https://example.com/webhook'><br>"
+                "<p class='hint'>The device will send a JSON payload with event details to this URL</p>"
+                "</div>"
+                "</div>"
+                "<input type='submit' value='Save Configuration' id='submit-btn'>"
                 "</form>"
+                "<script>"
+                "document.querySelector('form').addEventListener('submit', function(e) {"
+                "  var email = document.getElementById('email_recipient').value;"
+                "  var webhook = document.getElementById('webhook_url').value;"
+                "  if (!email && !webhook) {"
+                "    e.preventDefault();"
+                "    alert('You must configure at least one notification method (email or webhook)');"
+                "  }"
+                "});"
+                "</script>"
                 "</div></body></html>";
   
   server.send(200, "text/html", html);
@@ -514,9 +683,28 @@ void handleSetup() {
   String email_username = server.arg("email_username");
   String email_password = server.arg("email_password");
   String email_recipient = server.arg("email_recipient");
+  String webhook_url = server.arg("webhook_url");
+  
+  // Validate that at least one notification method is configured
+  if (email_recipient.length() == 0 && webhook_url.length() == 0) {
+    String html = "<!DOCTYPE html><html><head>"
+                  "<title>Setup Error</title>"
+                  "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                  "<link rel='stylesheet' href='style.css'>"
+                  "<meta http-equiv='refresh' content='5;url=/'>"
+                  "</head><body>"
+                  "<div class='container'>"
+                  "<h1>Setup Error</h1>"
+                  "<p>You must configure at least one notification method (email or webhook).</p>"
+                  "<p>Redirecting back to setup page in 5 seconds...</p>"
+                  "</div></body></html>";
+    
+    server.send(200, "text/html", html);
+    return;
+  }
   
   // Save configuration
-  saveConfig(ssid, password, email_server, email_port, email_username, email_password, email_recipient);
+  saveConfig(ssid, password, email_server, email_port, email_username, email_password, email_recipient, webhook_url);
   
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Setup Complete</title>"
@@ -539,28 +727,40 @@ void handleSetup() {
 }
 
 void handleNormalRoot() {
-  String html = "<!DOCTYPE html><html><head>"
-                "<title>Panic Alarm Control</title>"
-                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-                "<link rel='stylesheet' href='style.css'>"
-                "</head><body>"
-                "<div class='container'>"
-                "<h1>Panic Alarm Control Panel</h1>"
-                "<p>Device is operational and monitoring for panic button presses.</p>"
-                "<div class='status'>"
-                "<p><strong>WiFi SSID:</strong> " + wifi_ssid + "</p>"
-                "<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>"
-                "<p><strong>Email Recipient:</strong> " + email_recipient + "</p>"
-                "<p><strong>Battery Voltage:</strong> " + String(batteryVoltage) + "V</p>"
-                "</div>"
-                "<div class='buttons'>"
-                "<a href='/config' class='button'>Update Configuration</a>"
-                "<a href='/test' class='button test'>Test Alarm</a>"
-                "<a href='/reset' class='button reset'>Factory Reset</a>"
-                "</div>"
-                "</div></body></html>";
-  
-  server.send(200, "text/html", html);
+String html = "<!DOCTYPE html><html><head>"
+              "<title>Panic Alarm Control</title>"
+              "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+              "<link rel='stylesheet' href='style.css'>"
+              "</head><body>"
+              "<div class='container'>"
+              "<h1>Panic Alarm Control Panel</h1>"
+              "<p>Device is operational and monitoring for panic button presses.</p>"
+              "<div class='status'>"
+              "<p><strong>WiFi SSID:</strong> " + wifi_ssid + "</p>"
+              "<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>";
+
+if (email_recipient.length() > 0) {
+  html += "<p><strong>Email Alerts:</strong> Enabled (" + email_recipient + ")</p>";
+} else {
+  html += "<p><strong>Email Alerts:</strong> Disabled</p>";
+}
+
+if (webhook_url.length() > 0) {
+  html += "<p><strong>Webhook Alerts:</strong> Enabled</p>";
+} else {
+  html += "<p><strong>Webhook Alerts:</strong> Disabled</p>";
+}
+
+html += "<p><strong>Battery Voltage:</strong> " + String(batteryVoltage) + "V</p>"
+        "</div>"
+        "<div class='buttons'>"
+        "<a href='/config' class='button'>Update Configuration</a>"
+        "<a href='/test' class='button test'>Test Alarm</a>"
+        "<a href='/reset' class='button reset'>Factory Reset</a>"
+        "</div>"
+        "</div></body></html>";
+
+server.send(200, "text/html", html);
 }
 
 void handleConfigPage() {
@@ -580,21 +780,41 @@ void handleConfigPage() {
                 "<input type='password' id='password' name='password' value='" + wifi_password + "'><br>"
                 "</div>"
                 "<div class='section'>"
-                "<h2>Email Settings</h2>"
+                "<h2>Notification Settings</h2>"
+                "<p class='note'>Configure at least one notification method (email or webhook)</p>"
+                "<div class='subsection'>"
+                "<h3>Email Settings</h3>"
                 "<label for='email_server'>SMTP Server:</label>"
-                "<input type='text' id='email_server' name='email_server' value='" + email_server + "' required><br>"
+                "<input type='text' id='email_server' name='email_server' value='" + email_server + "'><br>"
                 "<label for='email_port'>SMTP Port:</label>"
-                "<input type='number' id='email_port' name='email_port' value='" + String(email_port) + "' required><br>"
+                "<input type='number' id='email_port' name='email_port' value='" + String(email_port) + "'><br>"
                 "<label for='email_username'>Email Username:</label>"
-                "<input type='text' id='email_username' name='email_username' value='" + email_username + "' required><br>"
+                "<input type='text' id='email_username' name='email_username' value='" + email_username + "'><br>"
                 "<label for='email_password'>Email Password:</label>"
-                "<input type='password' id='email_password' name='email_password' value='" + email_password + "' required><br>"
+                "<input type='password' id='email_password' name='email_password' value='" + email_password + "'><br>"
                 "<label for='email_recipient'>Recipient Email:</label>"
-                "<input type='email' id='email_recipient' name='email_recipient' value='" + email_recipient + "' required><br>"
+                "<input type='email' id='email_recipient' name='email_recipient' value='" + email_recipient + "'><br>"
                 "</div>"
-                "<input type='submit' value='Update Configuration'>"
+                "<div class='subsection'>"
+                "<h3>Webhook Settings</h3>"
+                "<label for='webhook_url'>Webhook URL:</label>"
+                "<input type='text' id='webhook_url' name='webhook_url' value='" + webhook_url + "' placeholder='https://example.com/webhook'><br>"
+                "<p class='hint'>The device will send a JSON payload with event details to this URL</p>"
+                "</div>"
+                "</div>"
+                "<input type='submit' value='Update Configuration' id='submit-btn'>"
                 "</form>"
                 "<div class='back'><a href='/' class='button'>Back to Home</a></div>"
+                "<script>"
+                "document.querySelector('form').addEventListener('submit', function(e) {"
+                "  var email = document.getElementById('email_recipient').value;"
+                "  var webhook = document.getElementById('webhook_url').value;"
+                "  if (!email && !webhook) {"
+                "    e.preventDefault();"
+                "    alert('You must configure at least one notification method (email or webhook)');"
+                "  }"
+                "});"
+                "</script>"
                 "</div></body></html>";
   
   server.send(200, "text/html", html);
@@ -608,9 +828,28 @@ void handleUpdate() {
   String email_username = server.arg("email_username");
   String email_password = server.arg("email_password");
   String email_recipient = server.arg("email_recipient");
+  String webhook_url = server.arg("webhook_url");
+
+  // Validate that at least one notification method is configured
+  if (email_recipient.length() == 0 && webhook_url.length() == 0) {
+    String html = "<!DOCTYPE html><html><head>"
+                  "<title>Update Error</title>"
+                  "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                  "<link rel='stylesheet' href='style.css'>"
+                  "<meta http-equiv='refresh' content='5;url=/config'>"
+                  "</head><body>"
+                  "<div class='container'>"
+                  "<h1>Update Error</h1>"
+                  "<p>You must configure at least one notification method (email or webhook).</p>"
+                  "<p>Redirecting back to configuration page in 5 seconds...</p>"
+                  "</div></body></html>";
+    
+    server.send(200, "text/html", html);
+  return;
+}
   
   // Save configuration
-  saveConfig(ssid, password, email_server, email_port, email_username, email_password, email_recipient);
+  saveConfig(ssid, password, email_server, email_port, email_username, email_password, email_recipient, webhook_url);
   
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Configuration Updated</title>"
@@ -630,14 +869,36 @@ void handleUpdate() {
   loadConfig();
 }
 
-void handleTestEmail() {
-  String result;
-  if (sendEmailAlert()) {
-    result = "Test alert sent successfully!";
-  } else {
-    result = "Failed to send test alert. Please check your email settings.";
+void handleTestAlert() {
+  bool emailSuccess = false;
+  bool webhookSuccess = false;
+  String result = "";
+
+  // Test email if configured
+  if (email_recipient.length() > 0) {
+    if (sendEmailAlert()) {
+      emailSuccess = true;
+      result += "Email alert sent successfully!<br>";
+    } else {
+      result += "Failed to send email alert. Please check your email settings.<br>";
+    }
   }
-  
+
+  // Test webhook if configured
+  if (webhook_url.length() > 0) {
+    if (sendWebhookAlert()) {
+      webhookSuccess = true;
+      result += "Webhook alert sent successfully!<br>";
+    } else {
+      result += "Failed to send webhook alert. Please check your webhook URL.<br>";
+    }
+  }
+
+  // If no notification method is configured
+  if (email_recipient.length() == 0 && webhook_url.length() == 0) {
+    result = "No notification method is configured. Please configure at least one.";
+  }
+
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Test Result</title>"
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
@@ -649,7 +910,7 @@ void handleTestEmail() {
                 "<p>" + result + "</p>"
                 "<p>Redirecting to home page in 5 seconds...</p>"
                 "</div></body></html>";
-  
+
   server.send(200, "text/html", html);
 }
 
@@ -676,7 +937,7 @@ void handleReset() {
                 "}"
                 "</script>"
                 "</div></body></html>";
-  
+
   if (server.hasArg("confirm") && server.arg("confirm") == "true") {
     // Erase configuration flag to force setup mode
     EEPROM.write(CONFIG_FLAG_ADDR, 0);
@@ -701,83 +962,102 @@ void handleReset() {
 
 void handleCss() {
   String css = "body {"
-               "  font-family: Arial, sans-serif;"
-               "  margin: 0;"
-               "  padding: 0;"
-               "  background-color: #f0f0f0;"
-               "}"
-               ".container {"
-               "  max-width: 600px;"
-               "  margin: 0 auto;"
-               "  padding: 20px;"
-               "}"
-               "h1, h2 {"
-               "  color: #333;"
-               "}"
-               ".section {"
-               "  background-color: #fff;"
-               "  border-radius: 5px;"
-               "  padding: 15px;"
-               "  margin-bottom: 20px;"
-               "  box-shadow: 0 2px 5px rgba(0,0,0,0.1);"
-               "}"
-               "label {"
-               "  display: block;"
-               "  margin-top: 10px;"
-               "  font-weight: bold;"
-               "}"
-               "input[type='text'], input[type='password'], input[type='email'], input[type='number'] {"
-               "  width: 100%;"
-               "  padding: 8px;"
-               "  margin-top: 5px;"
-               "  border: 1px solid #ddd;"
-               "  border-radius: 4px;"
-               "  box-sizing: border-box;"
-               "}"
-               "input[type='submit'], .button {"
-               "  background-color: #4CAF50;"
-               "  color: white;"
-               "  padding: 10px 15px;"
-               "  border: none;"
-               "  border-radius: 4px;"
-               "  cursor: pointer;"
-               "  font-size: 16px;"
-               "  margin-top: 10px;"
-               "  display: inline-block;"
-               "  text-decoration: none;"
-               "}"
-               ".button {"
-               "  margin-right: 10px;"
-               "}"
-               ".test {"
-               "  background-color: #2196F3;"
-               "}"
-               ".reset {"
-               "  background-color: #f44336;"
-               "}"
-               ".buttons {"
-               "  margin-top: 20px;"
-               "}"
-               ".status {"
-               "  background-color: #fff;"
-               "  border-radius: 5px;"
-               "  padding: 15px;"
-               "  margin-bottom: 20px;"
-               "  box-shadow: 0 2px 5px rgba(0,0,0,0.1);"
-               "}"
-               ".back {"
-               "  margin-top: 20px;"
-               "}"
-               "@media (max-width: 480px) {"
-               "  .container {"
-               "    padding: 10px;"
-               "  }"
-               "  .button {"
-               "    display: block;"
-               "    margin-bottom: 10px;"
-               "    text-align: center;"
-               "  }"
-               "}";
-               
+              "  font-family: Arial, sans-serif;"
+              "  margin: 0;"
+              "  padding: 0;"
+              "  background-color: #f0f0f0;"
+              "}"
+              ".container {"
+              "  max-width: 600px;"
+              "  margin: 0 auto;"
+              "  padding: 20px;"
+              "}"
+              "h1, h2, h3 {"
+              "  color: #333;"
+              "}"
+              "h3 {"
+              "  margin-top: 15px;"
+              "  margin-bottom: 10px;"
+              "}"
+              ".section {"
+              "  background-color: #fff;"
+              "  border-radius: 5px;"
+              "  padding: 15px;"
+              "  margin-bottom: 20px;"
+              "  box-shadow: 0 2px 5px rgba(0,0,0,0.1);"
+              "}"
+              ".subsection {"
+              "  border-left: 3px solid #ddd;"
+              "  padding-left: 15px;"
+              "  margin-bottom: 15px;"
+              "}"
+              "label {"
+              "  display: block;"
+              "  margin-top: 10px;"
+              "  font-weight: bold;"
+              "}"
+              "input[type='text'], input[type='password'], input[type='email'], input[type='number'] {"
+              "  width: 100%;"
+              "  padding: 8px;"
+              "  margin-top: 5px;"
+              "  border: 1px solid #ddd;"
+              "  border-radius: 4px;"
+              "  box-sizing: border-box;"
+              "}"
+              "input[type='submit'], .button {"
+              "  background-color: #4CAF50;"
+              "  color: white;"
+              "  padding: 10px 15px;"
+              "  border: none;"
+              "  border-radius: 4px;"
+              "  cursor: pointer;"
+              "  font-size: 16px;"
+              "  margin-top: 10px;"
+              "  display: inline-block;"
+              "  text-decoration: none;"
+              "}"
+              ".button {"
+              "  margin-right: 10px;"
+              "}"
+              ".test {"
+              "  background-color: #2196F3;"
+              "}"
+              ".reset {"
+              "  background-color: #f44336;"
+              "}"
+              ".buttons {"
+              "  margin-top: 20px;"
+              "}"
+              ".status {"
+              "  background-color: #fff;"
+              "  border-radius: 5px;"
+              "  padding: 15px;"
+              "  margin-bottom: 20px;"
+              "  box-shadow: 0 2px 5px rgba(0,0,0,0.1);"
+              "}"
+              ".back {"
+              "  margin-top: 20px;"
+              "}"
+              ".note {"
+              "  color: #e67e22;"
+              "  font-weight: bold;"
+              "  margin: 10px 0;"
+              "}"
+              ".hint {"
+              "  color: #7f8c8d;"
+              "  font-size: 0.9em;"
+              "  margin-top: 5px;"
+              "}"
+              "@media (max-width: 480px) {"
+              "  .container {"
+              "    padding: 10px;"
+              "  }"
+              "  .button {"
+              "    display: block;"
+              "    margin-bottom: 10px;"
+              "    text-align: center;"
+              "  }"
+              "}";
+              
   server.send(200, "text/css", css);
 }
