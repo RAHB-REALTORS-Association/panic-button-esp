@@ -11,6 +11,9 @@
 #define HAS_BATTERY_MONITORING true
 #endif
 
+// Sleep control - set to false to disable all deep sleep functionality
+#define ENABLE_DEEP_SLEEP false
+
 // Battery monitoring constants
 #define BATT_SAMPLES 10         // Battery read averaging
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
