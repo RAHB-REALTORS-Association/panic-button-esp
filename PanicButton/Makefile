@@ -3,7 +3,7 @@ PROJECT_NAME = PanicAlarm
 
 # Board settings
 FQBN = esp32:esp32:dfrobot_beetle_esp32c6:PartitionScheme=min_spiffs
-PORT = /dev/cu.usbserial-0001  # Change this to match your port
+PORT = /dev/cu.usbmodem31101  # Change this to match your port
 
 # Paths
 SKETCH_DIR = .
