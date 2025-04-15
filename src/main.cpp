@@ -33,11 +33,11 @@ void setup() {
   // Initialize EEPROM
   initStorage();
   
-  #if defined(ESP32_C6)
-  // Configure deep sleep wakeup for FireBeetle
-  uint64_t bitmask = 1ULL << BUTTON_PIN;
-  esp_sleep_enable_ext1_wakeup(bitmask, ESP_EXT1_WAKEUP_ANY_LOW);
-  #endif
+  //#if defined(ESP32_C6)
+  //// Configure deep sleep wakeup for FireBeetle
+  //uint64_t bitmask = 1ULL << BUTTON_PIN;
+  //esp_sleep_enable_ext1_wakeup(bitmask, ESP_EXT1_WAKEUP_ANY_LOW);
+  //#endif
   
   // Check if device is configured
   if (!isConfigured()) {
@@ -130,14 +130,14 @@ void triggerAlarm() {
   alarmTriggered = false;
 }
 
-#if defined(ESP32_C6) && HAS_BATTERY_MONITORING
-// Enter deep sleep mode to save battery (FireBeetle specific)
-void goToDeepSleep() {
-  Serial.println("Going to deep sleep...");
-  delay(100);
-  esp_deep_sleep_start();
-}
-#endif
+//#if defined(ESP32_C6) && HAS_BATTERY_MONITORING
+//// Enter deep sleep mode to save battery (FireBeetle specific)
+//void goToDeepSleep() {
+//  Serial.println("Going to deep sleep...");
+//  delay(100);
+//  esp_deep_sleep_start();
+//}
+//#endif
 
 extern "C" void lwip_hook_ip6_input(void) {
   // No-op implementation to satisfy linker
