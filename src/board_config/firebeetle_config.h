@@ -2,7 +2,7 @@
 #define FIREBEETLE_CONFIG_H
 
 // Pin definitions for FireBeetle ESP32-C6
-#define BUTTON_PIN 4
+#define BUTTON_PIN 9
 #define LED_PIN 15
 #define BATTERY_PIN 0  // A0 on FireBeetle ESP32-C6
 
