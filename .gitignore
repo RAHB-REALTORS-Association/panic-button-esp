@@ -35,3 +35,6 @@
 
 # PlatformIO files
 .pio/
+
+build/
+output/
