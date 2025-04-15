@@ -385,13 +385,13 @@ bool sendEmailAlert() {
   
   String htmlMsg = "<div style='color:red;'><h1>PANIC ALARM TRIGGERED</h1>"
                    "<p>The panic button has been activated.</p>"
-                   + locationInfo +
                    "<p><strong>Device ID:</strong> " + configSSID + "</p>"
-                   "<p><strong>Time:</strong> " + String(millis() / 1000) + " seconds since device boot</p>"
+                   + locationInfo +
                    "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
-                   "<p><strong>Battery voltage:</strong> " + String(batteryVoltage) + "V</p>"
                    "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
-                   + webhookStatus +
+                   "<p><strong>" + webhookStatus + "</strong></p>"
+                   "<p><strong>Battery voltage:</strong> " + String(batteryVoltage) + "V</p>"
+                   "<p><strong>Time:</strong> " + String(millis() / 1000) + " seconds since device boot</p>"
                    "</div>";
   message.html.content = htmlMsg.c_str();
   
@@ -727,6 +727,13 @@ void handleRoot() {
                 "<h1>Panic Alarm Setup</h1>"
                 "<p><strong>Device ID: </strong>" + configSSID + "</p>"
                 "<form action='/setup' method='post' onsubmit='return validateForm()'>"
+
+                "<div class='section'>"
+                "<h2>Device Settings</h2>"
+                "<label for='location'>Location Description:</label>"
+                "<input type='text' id='location' name='location' placeholder='e.g. Living Room, Front Door, etc.'><br>"
+                "</div>"
+
                 "<div class='section'>"
                 "<h2>WiFi Settings</h2>"
                 "<label for='ssid'>WiFi SSID:</label>"
@@ -779,12 +786,8 @@ void handleRoot() {
                 "<p class='info'>The device will send a JSON payload to this URL when the alarm is triggered.</p>"
                 "</div>"
                 "</div>"
-                
-                "<div class='section'>"
-                "<h2>Device Settings</h2>"
-                "<label for='location'>Location Description:</label>"
-                "<input type='text' id='location' name='location' placeholder='e.g. Living Room, Front Door, etc.'><br>"
                 "</div>"
+                
                 "<input type='submit' id='submit-btn' value='Save Configuration'>"
                 "</form>"
                 "</div>"
@@ -877,10 +880,10 @@ void handleNormalRoot() {
                 "<p>Device is operational and monitoring for panic button presses.</p>"
                 "<div class='status'>"
                 "<p><strong>Device ID:</strong> " + configSSID + "</p>"
-                "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                 "<p><strong>Location:</strong> " + (device_location.length() > 0 ? device_location : "Not specified") + "</p>"
                 "<p><strong>WiFi SSID:</strong> " + wifi_ssid + "</p>"
                 "<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>"
+                "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                 "<p><strong>Notification:</strong> " + notificationStatus + "</p>"
                 "<p><strong>Battery Voltage:</strong> " + String(batteryVoltage) + "V</p>"
                 "</div>"
