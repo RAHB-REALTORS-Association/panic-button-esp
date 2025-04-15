@@ -86,6 +86,11 @@ bool sendEmailAlert() {
 float batteryVoltage = 0.0;
 unsigned long lastBatteryCheck = 0;
 
+#if defined(ESP32_C6) && ENABLE_DEEP_SLEEP
+// Forward declaration of deep sleep function if needed
+extern void goToDeepSleep();
+#endif
+
 // Initialize battery monitoring
 void initBattery() {
   pinMode(BATTERY_PIN, INPUT);
@@ -133,7 +138,7 @@ bool isLowBattery() {
   return batteryVoltage < 3.3; // Adjust threshold if needed
 }
 
-// Send low battery alert email (FireBeetle specific)
+// Send low battery alert email
 bool sendLowBatteryAlert() {
   String server = getEmailServer();
   String recipient = getEmailRecipient();

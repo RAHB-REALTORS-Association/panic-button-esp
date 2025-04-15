@@ -1,3 +1,10 @@
+/*
+ * PanicAlarm.ino
+ * 
+ * Main sketch file for the ESP32-based Panic Alarm system
+ * Designed for ESP32 and ESP32-C6 boards
+ */
+
 #include <Arduino.h>
 #include <WiFi.h>  // Added WiFi library include
 #include "config.h"
