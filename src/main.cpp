@@ -21,7 +21,7 @@ const unsigned long MIN_RUNTIME_BEFORE_SLEEP = 300000; // 300 seconds = 5 minute
 void checkButton();
 void triggerAlarm();
 
-#if defined(ESP32_C6) && HAS_BATTERY_MONITORING
+#if defined(ESP32_C6) && HAS_BATTERY_MONITORING && ENABLE_DEEP_SLEEP
 void goToDeepSleep();
 #endif
 
@@ -43,7 +43,7 @@ void setup() {
   // Initialize EEPROM
   initStorage();
   
-  #if defined(ESP32_C6)
+  #if defined(ESP32_C6) && ENABLE_DEEP_SLEEP
   // Configure deep sleep wakeup for FireBeetle
   uint64_t bitmask = 1ULL << BUTTON_PIN;
   esp_sleep_enable_ext1_wakeup(bitmask, ESP_EXT1_WAKEUP_ANY_LOW);
@@ -73,7 +73,7 @@ void loop() {
     // Normal operation mode
     checkButton();
     
-    #if HAS_BATTERY_MONITORING
+    #if HAS_BATTERY_MONITORING && ENABLE_DEEP_SLEEP
     checkBatteryStatus();
     
     // Check if we can go to sleep yet
@@ -160,7 +160,7 @@ void triggerAlarm() {
   alarmTriggered = false;
 }
 
-#if defined(ESP32_C6) && HAS_BATTERY_MONITORING
+#if defined(ESP32_C6) && HAS_BATTERY_MONITORING && ENABLE_DEEP_SLEEP
 // Enter deep sleep mode to save battery (FireBeetle specific)
 void goToDeepSleep() {
   // Check if we've been running long enough to allow sleep
