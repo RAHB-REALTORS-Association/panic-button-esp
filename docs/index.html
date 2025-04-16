@@ -282,6 +282,44 @@
       background-color: var(--dark);
       text-decoration: none;
     }
+
+    /* Battery Gauge Styles */
+    .battery-gauge {
+      width: 100%;
+      max-width: 300px;
+      height: 30px;
+      background-color: #e0e0e0;
+      border-radius: 15px;
+      overflow: hidden;
+      margin: 1rem 0;
+      position: relative;
+    }
+
+    .battery-level {
+      height: 100%;
+      width: 75%;
+      background-color: #4CAF50;
+      border-radius: 15px;
+      transition: width 0.5s, background-color 0.5s;
+    }
+
+    .battery-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: black;
+      font-weight: bold;
+      text-shadow: 0 0 2px white;
+    }
+
+    .battery-level.medium {
+      background-color: #ff9800;
+    }
+
+    .battery-level.low {
+      background-color: #f44336;
+    }
   </style>
 </head>
 <body>
@@ -293,6 +331,8 @@
         <a href="#features">Features</a>
         <a href="#hardware">Hardware</a>
         <a href="#getting-started">Getting Started</a>
+        <a href="#battery">Battery</a>
+        <a href="#webhook">Webhook</a>
       </div>
     </div>
   </nav>
@@ -300,7 +340,7 @@
   <header>
     <div class="container header-content">
       <h1>🔴 ESP32 Wi-Fi Panic Button</h1>
-      <p>A standalone emergency alert system with email notifications and an intuitive web interface</p>
+      <p>A standalone emergency alert system with email, webhook notifications and battery monitoring</p>
     </div>
   </header>
 
@@ -317,16 +357,24 @@
           <p>Sends instant SMTP email notifications when the panic button is activated</p>
         </div>
         <div class="feature-card">
+          <h3>Webhook Integration</h3>
+          <p>Send JSON payloads to custom endpoints for integration with other systems</p>
+        </div>
+        <div class="feature-card">
+          <h3>Battery Monitoring</h3>
+          <p>Visual battery gauge with percentage display and low battery alerts</p>
+        </div>
+        <div class="feature-card">
           <h3>Web Control Panel</h3>
           <p>Intuitive dashboard for monitoring status and updating configuration</p>
         </div>
         <div class="feature-card">
           <h3>Persistent Settings</h3>
-          <p>EEPROM storage for Wi-Fi and SMTP configurations that survive power cycles</p>
+          <p>EEPROM storage for Wi-Fi, SMTP, and webhook configurations</p>
         </div>
         <div class="feature-card">
           <h3>Testing & Reset</h3>
-          <p>Built-in functions for sending test emails and performing factory resets</p>
+          <p>Built-in functions for testing notifications and performing factory resets</p>
         </div>
         <div class="feature-card">
           <h3>Mobile-Friendly</h3>
@@ -338,10 +386,11 @@
     <section id="hardware">
       <h2>🛠️ Hardware Requirements</h2>
       <ul>
-        <li><strong>Microcontroller:</strong> ESP32 (any development board)</li>
-        <li><strong>Input:</strong> Tactile button (connected to GPIO 13)</li>
-        <li><strong>Indicator:</strong> Status LED (connected to GPIO 2)</li>
-        <li><strong>Power Supply:</strong> USB or battery powered</li>
+        <li><strong>Microcontroller:</strong> FireBeetle ESP32-C6 board</li>
+        <li><strong>Input:</strong> Tactile button (connected to GPIO 4)</li>
+        <li><strong>Indicator:</strong> Status LED (GPIO 15, onboard LED)</li>
+        <li><strong>Battery:</strong> LiPo battery connected to onboard JST connector</li>
+        <li><strong>Battery Monitoring:</strong> Via ADC (GPIO 0)</li>
       </ul>
       
       <h3 style="margin-top: 1.5rem; color: var(--dark);">Pinout Configuration</h3>
@@ -356,13 +405,18 @@
         <tbody>
           <tr>
             <td>Panic Button</td>
-            <td>13</td>
+            <td>4</td>
             <td>Active LOW (connect to GND when pressed)</td>
           </tr>
           <tr>
             <td>Status LED</td>
-            <td>2</td>
-            <td>Indicates system status</td>
+            <td>15</td>
+            <td>Onboard LED, indicates system status</td>
+          </tr>
+          <tr>
+            <td>Battery ADC</td>
+            <td>0</td>
+            <td>Monitors battery voltage level</td>
           </tr>
         </tbody>
       </table>
@@ -373,6 +427,7 @@
       <p>This project relies on the following libraries:</p>
       <ul>
         <li><a href="https://github.com/mobizt/ESP-Mail-Client" target="_blank">ESP Mail Client</a> - For sending email alerts</li>
+        <li><strong>HTTPClient</strong> - For webhook functionality</li>
         <li><strong>WiFi</strong> - For network connectivity</li>
         <li><strong>WebServer</strong> - For hosting the control panel interface</li>
         <li><strong>DNSServer</strong> - For the captive portal functionality</li>
@@ -385,19 +440,20 @@
     <section id="getting-started">
       <h2>🚀 Getting Started</h2>
       <ol>
-        <li><strong>Flash the Firmware:</strong> Upload the project code to your ESP32 using the Arduino IDE or PlatformIO.</li>
+        <li><strong>Flash the Firmware:</strong> Upload the project code to your ESP32-C6 using the Arduino IDE.</li>
         <li><strong>Initial Setup:</strong> When first powered on, the ESP32 will enter Setup Mode:
           <ul>
-            <li>The device creates a Wi-Fi access point named <code>PanicAlarm_Setup</code></li>
-            <li>Connect to this network with your smartphone or computer</li>
+            <li>The device creates a Wi-Fi access point named <code>PanicAlarm_XXXX</code> (where XXXX is derived from the MAC address)</li>
+            <li>Connect to this network with password <code>setupalarm</code></li>
             <li>A captive portal should automatically open (or navigate to <code>192.168.4.1</code>)</li>
-            <li>Enter your Wi-Fi credentials and email settings</li>
+            <li>Configure Wi-Fi, email and/or webhook notifications, and device location</li>
           </ul>
         </li>
         <li><strong>Normal Operation:</strong> After configuration, the device will:
           <ul>
             <li>Connect to your Wi-Fi network</li>
             <li>Begin monitoring for button presses</li>
+            <li>Track battery status</li>
             <li>Show operational status via the LED indicator</li>
           </ul>
         </li>
@@ -405,12 +461,60 @@
       </ol>
     </section>
 
-    <section id="simulator">
-      <h2>🔧 Web Interface Simulator</h2>
-      <p>Try out the control panel interface with this interactive simulator:</p>
-      <div class="simulator-frame">
-        <iframe src="simulator.html"></iframe>
+    <section id="battery">
+      <h2>🔋 Battery Monitoring</h2>
+      <p>The device includes comprehensive battery monitoring with visual feedback:</p>
+      
+      <h3 style="margin-top: 1rem; color: var(--dark);">Battery Gauge</h3>
+      <p>The control panel displays a color-coded battery level indicator:</p>
+      
+      <div class="battery-gauge">
+        <div class="battery-level" style="width: 75%;">
+          <span class="battery-text">75%</span>
+        </div>
       </div>
+      
+      <ul>
+        <li><strong>Green:</strong> Good battery level (above 50%)</li>
+        <li><strong>Yellow/Orange:</strong> Medium battery level (25-50%)</li>
+        <li><strong>Red:</strong> Low battery (below 25%)</li>
+      </ul>
+      
+      <h3 style="margin-top: 1rem; color: var(--dark);">Low Battery Alerts</h3>
+      <p>When battery level drops below 25%, the device will:</p>
+      <ul>
+        <li>Send a low battery warning email (if email notifications are enabled)</li>
+        <li>Send a low battery webhook notification (if webhook is enabled)</li>
+        <li>Blink the LED in a specific pattern to indicate low battery</li>
+      </ul>
+      
+      <p>Both voltage and percentage information are tracked and included in notifications.</p>
+    </section>
+
+    <section id="webhook">
+      <h2>🌐 Webhook Integration</h2>
+      <p>The device can send JSON payloads to a custom URL when events occur:</p>
+      
+      <h3 style="margin-top: 1rem; color: var(--dark);">Webhook Payload Example</h3>
+      <pre><code>{
+  "event": "PANIC_ALARM_TRIGGERED",
+  "device_id": "PanicAlarm_AB12",
+  "mac_address": "A4:CF:12:67:AB:12",
+  "location": "Front Door",
+  "ip_address": "192.168.1.42",
+  "battery_voltage": 3.82,
+  "battery_percentage": 68,
+  "triggered_at": 1428
+}</code></pre>
+      
+      <h3 style="margin-top: 1rem; color: var(--dark);">Event Types</h3>
+      <ul>
+        <li><code>PANIC_ALARM_TRIGGERED</code> - When the panic button is pressed</li>
+        <li><code>LOW_BATTERY_WARNING</code> - When battery level drops below 25%</li>
+      </ul>
+      
+      <h3 style="margin-top: 1rem; color: var(--dark);">Testing</h3>
+      <p>You can test webhook functionality directly from the web interface using the "Test Webhook" button in the control panel.</p>
     </section>
 
     <section id="usage">
@@ -418,8 +522,13 @@
       
       <h3 style="margin-top: 1rem; color: var(--dark);">Triggering an Alert</h3>
       <ul>
-        <li><strong>Hardware Method:</strong> Press the physical button connected to GPIO 13</li>
-        <li><strong>Software Method:</strong> Visit <code>http://[device-ip]/test</code> in a browser</li>
+        <li><strong>Hardware Method:</strong> Press the physical button connected to GPIO 4</li>
+        <li><strong>Software Methods:</strong>
+          <ul>
+            <li>Visit <code>http://[device-ip]/test</code> to test email notification</li>
+            <li>Visit <code>http://[device-ip]/test-webhook</code> to test webhook notification</li>
+          </ul>
+        </li>
       </ul>
       
       <h3 style="margin-top: 1rem; color: var(--dark);">Factory Reset</h3>
@@ -441,19 +550,19 @@
         <tbody>
           <tr>
             <td>Solid On</td>
-            <td>Alert triggered / sending email</td>
+            <td>Alert triggered / sending notifications</td>
           </tr>
           <tr>
-            <td>Slow Blink</td>
+            <td>Slow Blink (5 pulses)</td>
             <td>Setup mode active</td>
           </tr>
           <tr>
-            <td>Fast Blink</td>
-            <td>Error condition</td>
+            <td>Quick Blink (5 pulses)</td>
+            <td>Low battery warning</td>
           </tr>
           <tr>
-            <td>Brief Flash</td>
-            <td>Normal operation heartbeat</td>
+            <td>3 Blinks</td>
+            <td>Successfully connected to WiFi</td>
           </tr>
         </tbody>
       </table>
@@ -486,6 +595,37 @@
         modeText.textContent = 'Dark Mode';
       }
     }
+
+    // Sample code to demonstrate the battery gauge
+    document.addEventListener('DOMContentLoaded', function() {
+      // For demo purposes - in real implementation this would be updated with actual battery data
+      const batteryLevels = [85, 55, 35, 15];
+      let currentIndex = 0;
+      
+      function updateBatteryDemo() {
+        const level = batteryLevels[currentIndex];
+        const batteryEl = document.querySelector('.battery-level');
+        const textEl = document.querySelector('.battery-text');
+        
+        batteryEl.style.width = level + '%';
+        textEl.textContent = level + '%';
+        
+        // Update color based on level
+        batteryEl.classList.remove('medium', 'low');
+        if (level < 25) {
+          batteryEl.classList.add('low');
+        } else if (level < 50) {
+          batteryEl.classList.add('medium');
+        }
+        
+        // Cycle through demo levels
+        currentIndex = (currentIndex + 1) % batteryLevels.length;
+      }
+      
+      // Update every 3 seconds for demo
+      setInterval(updateBatteryDemo, 3000);
+      updateBatteryDemo(); // Initial update
+    });
   </script>
 </body>
 </html>

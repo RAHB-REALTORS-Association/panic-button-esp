@@ -1,29 +1,26 @@
 # 🔴 ESP32 Wi-Fi Panic Button
 
-A standalone ESP32-based Wi-Fi panic button that sends an email alert when pressed. Designed for quick deployment with a built-in captive portal for configuration.
+A standalone ESP32-based Wi-Fi panic button that sends email and webhook alerts when pressed. Designed for quick deployment with a built-in captive portal for configuration.
 
 ## ✨ Features
 
 - Wi-Fi configuration via captive portal
-- SMTP email alerts when panic button is pressed
+- Multiple notification options:
+  - SMTP email alerts when panic button is pressed
+  - Webhook integration for connecting to other systems
+- Battery level monitoring with percentage display and visual gauge
 - Web-based control panel and config update page
-- EEPROM-stored settings (WiFi and SMTP)
-- Factory reset and test email functions
+- EEPROM-stored settings (WiFi, SMTP, and webhook)
+- Factory reset and test functions
 - Mobile-friendly responsive UI
-- Modular code structure for maintainability
-- Support for both ESP32 and FireBeetle ESP32-C6 boards
+- Support for ESP32-C6 boards (like FireBeetle)
 
 ## 🛠️ Hardware
 
-The firmware supports two hardware variants:
-
-### Standard ESP32
-- ESP32 (any standard dev board)
-- Tactile button (connected to GPIO 13)
-- Status LED (connected to GPIO 2)
+The firmware is optimized for:
 
 ### FireBeetle ESP32-C6
-- DFRobot FireBeetle 2 ESP32-C6 board
+- [DFRobot FireBeetle 2 ESP32-C6 board](https://www.dfrobot.com/product-2771.html)
 - Tactile button (connected to GPIO 4)
 - Onboard LED (GPIO 15)
 - Battery monitoring via ADC (GPIO 0)
@@ -31,6 +28,7 @@ The firmware supports two hardware variants:
 ## 📦 Libraries Used
 
 - [ESP Mail Client](https://github.com/mobizt/ESP-Mail-Client)
+- [HTTPClient](https://github.com/espressif/arduino-esp32) (for webhook functionality)
 - WiFi
 - WebServer
 - DNSServer
@@ -38,82 +36,54 @@ The firmware supports two hardware variants:
 
 ## 🔌 Pinout
 
-| Function       | ESP32 GPIO | FireBeetle GPIO |
-|----------------|------------|----------------|
-| Panic Button   | 13         | 4              |
-| Status LED     | 2          | 15             |
-| Battery ADC    | N/A        | 0              |
-
-## 📂 Project Structure
-
-The project uses a modular structure to organize functionality:
-
-```
-src/
-  ├── main.cpp         # Main program entry point
-  ├── config.h         # Common and board-specific configuration
-  ├── network.cpp/h    # WiFi and web server functionality
-  ├── storage.cpp/h    # EEPROM storage functions
-  └── notifications.cpp/h  # Email and LED notifications
-```
-
-## 🔨 Building and Uploading
-
-This project uses PlatformIO for building and uploading. The firmware supports two board variants:
-
-### For Standard ESP32
-```bash
-pio run -e esp32
-pio run -e esp32 -t upload
-pio run -e esp32 -t monitor
-```
-
-### For FireBeetle ESP32-C6
-```bash
-pio run -e esp32-c6
-pio run -e esp32-c6 -t upload
-pio run -e esp32-c6 -t monitor
-```
+| Function       | FireBeetle GPIO |
+|----------------|----------------|
+| Panic Button   | 4              |
+| Status LED     | 15             |
+| Battery ADC    | 0              |
 
 ## 🚀 Getting Started
 
-1. Choose the correct board environment and flash the firmware.
+1. Flash the firmware using Arduino IDE
 2. If no config is stored, the device starts in **Setup Mode**:
-   - Hosts an AP named `PanicAlarm_Setup`
-   - Access the captive portal to configure Wi-Fi and email
+   - Hosts an AP named `PanicAlarm_XXXX` (where XXXX is derived from the MAC address)
+   - Password: `setupalarm`
+   - Access the captive portal to configure Wi-Fi and notification settings
 3. Once configured, the device will connect to the saved network and begin monitoring.
 
 ## 🔧 Web Interface
 
 ### Setup Mode (AP)
-
-- `GET /` — Captive portal for config
-- `POST /setup` — Submit config
+- Captive portal guides you through initial configuration
+- Configure WiFi, notifications, and device location
 
 ### Normal Mode (STA)
+- Main status page with battery gauge and device information
+- Configuration update page for changing settings
+- Test features for both email and webhook notifications
+- Factory reset option
 
-- `GET /` — Main status page
-- `GET /config` — Config update form
-- `POST /update` — Save updated config
-- `GET /test` — Send a test email
-- `GET /reset` — Factory reset interface
+## 🔋 Battery Monitoring
 
-## 🧪 Testing
+- Visual battery gauge with color coding:
+  - Green: Good battery (above 50%)
+  - Yellow: Medium battery (25-50%)
+  - Red: Low battery (below 25%)
+- Percentage and voltage display
+- Low battery notifications via both email and webhook
 
-- Press the hardware button to trigger an alarm.
-- Use `/test` from the browser to simulate an alert.
+## 🌐 Webhook Integration
 
-## 🔔 FireBeetle-Specific Features
-
-When built for the FireBeetle ESP32-C6:
-- Battery voltage monitoring
-- Low battery email alerts
-- Deep sleep capabilities
-- Optimized for battery operation
+The device can send JSON payloads to a custom webhook URL with the following information:
+- Event type (alarm triggered or low battery)
+- Device ID and location
+- Battery status
+- IP and MAC address
+- Timestamp
 
 ## 🔁 Resetting
 
-Visit `/reset`, confirm, and the device will wipe config and restart in setup mode.
+Visit the reset page from the control panel, confirm, and the device will wipe configuration and restart in setup mode.
 
 ## 📄 License
 
