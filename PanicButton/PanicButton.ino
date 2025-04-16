@@ -28,6 +28,8 @@
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
 #define TIME_TO_SLEEP  60       // Time ESP32 will sleep (in seconds)
 #define BATT_SAMPLES 10         // Battery read averaging
+#define BATT_MAX_VOLTAGE 4.2    // Maximum battery voltage (fully charged)
+#define BATT_MIN_VOLTAGE 3.2    // Minimum battery voltage (depleted)
 
 // Global variables
 bool isConfigMode = false;
@@ -50,6 +52,7 @@ unsigned long debounceDelay = 50;
 int buttonState = HIGH;
 int lastButtonState = HIGH;
 float batteryVoltage = 0.0;
+int batteryPercentage = 0;  // New variable for battery percentage
 unsigned long lastBatteryCheck = 0;
 
 WebServer server(WEBSERVER_PORT);
@@ -75,9 +78,12 @@ void setup() {
   // Read initial battery voltage using onboard divider (×2)
   int mV = analogReadMilliVolts(BATTERY_PIN);
   batteryVoltage = (mV * 2) / 1000.0;
+  batteryPercentage = calculateBatteryPercentage(batteryVoltage);
   Serial.print("Initial battery voltage: ");
   Serial.print(batteryVoltage);
-  Serial.println(" V");
+  Serial.print(" V (");
+  Serial.print(batteryPercentage);
+  Serial.println("%)");
 
   // Initialize EEPROM
   EEPROM.begin(EEPROM_SIZE);
@@ -120,6 +126,19 @@ String generateUniqueSSID() {
   return baseName + macStr;
 }
 
+// Calculate battery percentage from voltage
+int calculateBatteryPercentage(float voltage) {
+  if (voltage >= BATT_MAX_VOLTAGE) {
+    return 100;
+  } else if (voltage <= BATT_MIN_VOLTAGE) {
+    return 0;
+  } else {
+    // Linear approximation between min and max voltage
+    float percentage = ((voltage - BATT_MIN_VOLTAGE) / (BATT_MAX_VOLTAGE - BATT_MIN_VOLTAGE)) * 100.0;
+    return (int)percentage;
+  }
+}
+
 // Main loop
 void loop() {
   if (isConfigMode) {
@@ -142,8 +161,12 @@ void checkBatteryStatus() {
   if (millis() - lastBatteryCheck > 60000) { // Check every minute
     lastBatteryCheck = millis();
     batteryVoltage = getBatteryVoltage();
+    batteryPercentage = calculateBatteryPercentage(batteryVoltage);
     Serial.print("Battery voltage: ");
-    Serial.println(batteryVoltage);
+    Serial.print(batteryVoltage);
+    Serial.print(" V (");
+    Serial.print(batteryPercentage);
+    Serial.println("%)");
     
     if (isLowBattery()) {
       blinkLED(5, 50); // Fast blink to indicate low battery
@@ -168,7 +191,7 @@ float getBatteryVoltage() {
 
 // Check if battery is low
 bool isLowBattery() {
-  return batteryVoltage < 3.3; // Adjust threshold if needed
+  return batteryPercentage < 25; // Changed to use percentage instead of voltage
 }
 
 // Start configuration mode with AP and captive portal
@@ -340,6 +363,7 @@ bool sendWebhook() {
                       + locationInfo +
                       "\"ip_address\": \"" + WiFi.localIP().toString() + "\","
                       "\"battery_voltage\": " + String(batteryVoltage) + ","
+                      "\"battery_percentage\": " + String(batteryPercentage) + ","
                       "\"triggered_at\": " + String(millis() / 1000) +
                       "}";
   
@@ -390,7 +414,7 @@ bool sendEmailAlert() {
                    "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
                    "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                    "<p><strong>" + webhookStatus + "</strong></p>"
-                   "<p><strong>Battery voltage:</strong> " + String(batteryVoltage) + "V</p>"
+                   "<p><strong>Battery:</strong> " + String(batteryPercentage) + "%</p>"
                    "<p><strong>Time:</strong> " + String(millis() / 1000) + " seconds since device boot</p>"
                    "</div>";
   message.html.content = htmlMsg.c_str();
@@ -454,6 +478,7 @@ bool sendLowBatteryWebhook() {
                       + locationInfo +
                       "\"ip_address\": \"" + WiFi.localIP().toString() + "\","
                       "\"battery_voltage\": " + String(batteryVoltage) + ","
+                      "\"battery_percentage\": " + String(batteryPercentage) + ","
                       "\"reported_at\": " + String(millis() / 1000) +
                       "}";
   
@@ -501,7 +526,7 @@ bool sendLowBatteryEmail() {
                    "<p>Your panic alarm device is running low on battery.</p>"
                    + locationInfo +
                    "<p><strong>Device ID:</strong> " + configSSID + "</p>"
-                   "<p><strong>Current battery voltage:</strong> " + String(batteryVoltage) + "V</p>"
+                   "<p><strong>Battery level:</strong> " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</p>"
                    "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
                    "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                    + webhookStatus +
@@ -724,7 +749,15 @@ void handleRoot() {
                 "</script>"
                 "</head><body>"
                 "<div class='container'>"
+                "<div class='header-container'>"
+                "<svg width='40' height='40' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg' class='logo'>"
+                "  <circle cx='100' cy='100' r='95' fill='#2f2f2f'/>"
+                "  <circle cx='100' cy='100' r='75' fill='#444'/>"
+                "  <circle cx='100' cy='100' r='55' fill='#d32f2f'/>"
+                "  <ellipse cx='85' cy='80' rx='20' ry='12' fill='white' opacity='0.3'/>"
+                "</svg>"
                 "<h1>Panic Alarm Setup</h1>"
+                "</div>"
                 "<p><strong>Device ID: </strong>" + configSSID + "</p>"
                 "<form action='/setup' method='post' onsubmit='return validateForm()'>"
 
@@ -858,6 +891,7 @@ void handleSetup() {
   ESP.restart();
 }
 
+// Web handlers
 void handleNormalRoot() {
   String notificationStatus = "";
   if (email_enabled && webhook_enabled) {
@@ -870,13 +904,35 @@ void handleNormalRoot() {
     notificationStatus = "No notifications enabled!";
   }
   
+  // Determine battery color based on percentage
+  String batteryColor = "#4CAF50"; // Green for good battery
+  if (batteryPercentage < 25) {
+    batteryColor = "#f44336"; // Red for very low
+  } else if (batteryPercentage < 50) {
+    batteryColor = "#ff9800"; // Orange/yellow for low
+  }
+  
+  // Create battery gauge HTML
+  String batteryGauge = "<div class='battery-container'>"
+                        "<div class='battery-level' style='width:" + String(batteryPercentage) + "%; background-color:" + batteryColor + ";'></div>"
+                        "<span class='battery-text'>" + String(batteryPercentage) + "%</span>"
+                        "</div>";
+  
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Panic Alarm Control</title>"
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
                 "<link rel='stylesheet' href='style.css'>"
                 "</head><body>"
                 "<div class='container'>"
-                "<h1>Panic Alarm Control Panel</h1>"
+                "<div class='header-container'>"
+                "<svg width='40' height='40' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg' class='logo'>"
+                "  <circle cx='100' cy='100' r='95' fill='#2f2f2f'/>"
+                "  <circle cx='100' cy='100' r='75' fill='#444'/>"
+                "  <circle cx='100' cy='100' r='55' fill='#d32f2f'/>"
+                "  <ellipse cx='85' cy='80' rx='20' ry='12' fill='white' opacity='0.3'/>"
+                "</svg>"
+                "<h1>Panic Alarm Control</h1>"
+                "</div>"
                 "<p>Device is operational and monitoring for panic button presses.</p>"
                 "<div class='status'>"
                 "<p><strong>Device ID:</strong> " + configSSID + "</p>"
@@ -885,7 +941,8 @@ void handleNormalRoot() {
                 "<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>"
                 "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                 "<p><strong>Notification:</strong> " + notificationStatus + "</p>"
-                "<p><strong>Battery Voltage:</strong> " + String(batteryVoltage) + "V</p>"
+                "<p><strong>Battery Status:</strong></p>" + batteryGauge +
+                "<p class='small-note'>Battery Voltage: " + String(batteryVoltage) + "V</p>"
                 "</div>"
                 "<div class='buttons'>"
                 "<a href='/config' class='button'>Update Configuration</a>";
@@ -937,9 +994,24 @@ void handleConfigPage() {
                 "</script>"
                 "</head><body>"
                 "<div class='container'>"
+                "<div class='header-container'>"
+                "<svg width='40' height='40' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg' class='logo'>"
+                "  <circle cx='100' cy='100' r='95' fill='#2f2f2f'/>"
+                "  <circle cx='100' cy='100' r='75' fill='#444'/>"
+                "  <circle cx='100' cy='100' r='55' fill='#d32f2f'/>"
+                "  <ellipse cx='85' cy='80' rx='20' ry='12' fill='white' opacity='0.3'/>"
+                "</svg>"
                 "<h1>Update Configuration</h1>"
+                "</div>"
                 "<p><strong>Device ID: </strong>" + configSSID + "</p>"
                 "<form action='/update' method='post' onsubmit='return validateForm()'>"
+
+                "<div class='section'>"
+                "<h2>Device Settings</h2>"
+                "<label for='location'>Location Description:</label>"
+                "<input type='text' id='location' name='location' value='" + device_location + "' placeholder='e.g. Living Room, Front Door, etc.'><br>"
+                "</div>"
+
                 "<div class='section'>"
                 "<h2>WiFi Settings</h2>"
                 "<label for='ssid'>WiFi SSID:</label>"
@@ -992,12 +1064,8 @@ void handleConfigPage() {
                 "<p class='info'>The device will send a JSON payload to this URL when the alarm is triggered.</p>"
                 "</div>"
                 "</div>"
-                
-                "<div class='section'>"
-                "<h2>Device Settings</h2>"
-                "<label for='location'>Location Description:</label>"
-                "<input type='text' id='location' name='location' value='" + device_location + "' placeholder='e.g. Living Room, Front Door, etc.'><br>"
                 "</div>"
+                
                 "<input type='submit' id='submit-btn' value='Update Configuration'>"
                 "</form>"
                 "<div class='back'><a href='/' class='button'>Back to Home</a></div>"
@@ -1128,7 +1196,15 @@ void handleReset() {
                 "<link rel='stylesheet' href='style.css'>"
                 "</head><body>"
                 "<div class='container'>"
+                "<div class='header-container'>"
+                "<svg width='40' height='40' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg' class='logo'>"
+                "  <circle cx='100' cy='100' r='95' fill='#2f2f2f'/>"
+                "  <circle cx='100' cy='100' r='75' fill='#444'/>"
+                "  <circle cx='100' cy='100' r='55' fill='#d32f2f'/>"
+                "  <ellipse cx='85' cy='80' rx='20' ry='12' fill='white' opacity='0.3'/>"
+                "</svg>"
                 "<h1>Factory Reset</h1>"
+                "</div>"
                 "<p>Are you sure you want to reset all settings?</p>"
                 "<p>This will erase all configuration and restart the device in setup mode.</p>"
                 "<div class='buttons'>"
@@ -1188,6 +1264,14 @@ void handleCss() {
                "  padding: 15px;"
                "  margin-bottom: 20px;"
                "  box-shadow: 0 2px 5px rgba(0,0,0,0.1);"
+               "}"
+               ".header-container {"
+               "  display: flex;"
+               "  align-items: center;"
+               "  margin-bottom: 20px;"
+               "}"
+               ".logo {"
+               "  margin-right: 15px;"
                "}"
                ".toggle-section {"
                "  background-color: #fff;"
@@ -1316,6 +1400,35 @@ void handleCss() {
                "}"
                ".toggle-label {"
                "  font-weight: bold;"
+               "}"
+               /* Battery gauge styles */
+               ".battery-container {"
+               "  width: 100%;"
+               "  height: 25px;"
+               "  background-color: #e0e0e0;"
+               "  border-radius: 4px;"
+               "  position: relative;"
+               "  margin: 10px 0;"
+               "  overflow: hidden;"
+               "}"
+               ".battery-level {"
+               "  height: 100%;"
+               "  border-radius: 4px;"
+               "  transition: width 0.5s ease-in-out;"
+               "}"
+               ".battery-text {"
+               "  position: absolute;"
+               "  top: 50%;"
+               "  left: 50%;"
+               "  transform: translate(-50%, -50%);"
+               "  color: #000;"
+               "  font-weight: bold;"
+               "  text-shadow: 0 0 3px #fff;"
+               "}"
+               ".small-note {"
+               "  font-size: 0.85em;"
+               "  color: #777;"
+               "  margin-top: 5px;"
                "}"
                "@media (max-width: 480px) {"
                "  .container {"
