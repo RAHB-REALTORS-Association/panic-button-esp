@@ -3,10 +3,10 @@
 #include <WebServer.h>
 #include <EEPROM.h>
 #include <ESP_Mail_Client.h>
-#include <HTTPClient.h> // Added for webhook support
+#include <HTTPClient.h>
 
 // Constants
-#define EEPROM_SIZE 710 // Increased for webhook URL
+#define EEPROM_SIZE 710
 #define CONFIG_FLAG_ADDR 0
 #define SSID_ADDR 10
 #define PASS_ADDR 80
@@ -16,9 +16,9 @@
 #define EMAIL_PASS_ADDR 294
 #define EMAIL_RECIPIENT_ADDR 364
 #define LOCATION_ADDR 434
-#define WEBHOOK_URL_ADDR 504 // New address for webhook URL
-#define WEBHOOK_ENABLED_ADDR 674 // New address for webhook enabled flag
-#define EMAIL_ENABLED_ADDR 675 // New address for email enabled flag
+#define WEBHOOK_URL_ADDR 504
+#define WEBHOOK_ENABLED_ADDR 674
+#define EMAIL_ENABLED_ADDR 675
 #define BUTTON_PIN 4    // FireBeetle suitable GPIO pin
 #define LED_PIN 15      // FireBeetle's onboard LED
 #define BATTERY_PIN 0   // A0 on FireBeetle ESP32-C6
@@ -43,8 +43,8 @@ String email_username = "";
 String email_password = "";
 String email_recipient = "";
 String device_location = "";
-String webhook_url = ""; // New variable for webhook URL
-bool webhook_enabled = false; // Flag to enable webhook
+String webhook_url = "";
+bool webhook_enabled = false;
 bool email_enabled = true; // Flag to enable email (default to true for backward compatibility)
 bool alarmTriggered = false;
 unsigned long lastDebounceTime = 0;
@@ -52,7 +52,7 @@ unsigned long debounceDelay = 50;
 int buttonState = HIGH;
 int lastButtonState = HIGH;
 float batteryVoltage = 0.0;
-int batteryPercentage = 0;  // New variable for battery percentage
+int batteryPercentage = 0;
 unsigned long lastBatteryCheck = 0;
 
 WebServer server(WEBSERVER_PORT);
@@ -252,7 +252,7 @@ bool connectToWiFi() {
     server.on("/config", HTTP_GET, handleConfigPage);
     server.on("/update", HTTP_POST, handleUpdate);
     server.on("/test", HTTP_GET, handleTestEmail);
-    server.on("/test-webhook", HTTP_GET, handleTestWebhook);  // New handler for testing webhook
+    server.on("/test-webhook", HTTP_GET, handleTestWebhook);
     server.on("/reset", HTTP_GET, handleReset);
     server.on("/style.css", HTTP_GET, handleCss);
     
@@ -549,7 +549,7 @@ bool sendLowBatteryEmail() {
 // Load configuration from EEPROM
 void loadConfig() {
   // Read WiFi SSID
-  char buffer[170]; // Increased buffer size for webhook URL
+  char buffer[170];
   for (int i = 0; i < 70; i++) {
     buffer[i] = EEPROM.read(SSID_ADDR + i);
   }
@@ -601,7 +601,7 @@ void loadConfig() {
   }
   device_location = String(buffer);
   
-  // Read webhook URL (longer string up to 170 chars)
+  // Read webhook URL
   memset(buffer, 0, 170);
   for (int i = 0; i < 170; i++) {
     buffer[i] = EEPROM.read(WEBHOOK_URL_ADDR + i);
