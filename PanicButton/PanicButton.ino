@@ -21,15 +21,9 @@
 #define EMAIL_ENABLED_ADDR 675 // New address for email enabled flag
 #define BUTTON_PIN 4    // FireBeetle suitable GPIO pin
 #define LED_PIN 15      // FireBeetle's onboard LED
-#define BATTERY_PIN 0   // A0 on FireBeetle ESP32-C6
 #define DNS_PORT 53
 #define WEBSERVER_PORT 80
 #define CONFIG_FLAG 0xAA
-#define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
-#define TIME_TO_SLEEP  60       // Time ESP32 will sleep (in seconds)
-#define BATT_SAMPLES 10         // Battery read averaging
-#define BATT_MAX_VOLTAGE 4.2    // Maximum battery voltage (fully charged)
-#define BATT_MIN_VOLTAGE 3.2    // Minimum battery voltage (depleted)
 
 // Global variables
 bool isConfigMode = false;
@@ -51,9 +45,6 @@ unsigned long lastDebounceTime = 0;
 unsigned long debounceDelay = 50;
 int buttonState = HIGH;
 int lastButtonState = HIGH;
-float batteryVoltage = 0.0;
-int batteryPercentage = 0;  // New variable for battery percentage
-unsigned long lastBatteryCheck = 0;
 
 WebServer server(WEBSERVER_PORT);
 DNSServer dnsServer;
@@ -67,30 +58,14 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
-  pinMode(BATTERY_PIN, INPUT);
-  analogReadResolution(12); // 12-bit ADC resolution
 
   // Generate unique SSID based on MAC
   configSSID = generateUniqueSSID();
   Serial.print("Generated unique SSID: ");
   Serial.println(configSSID);
 
-  // Read initial battery voltage using onboard divider (×2)
-  int mV = analogReadMilliVolts(BATTERY_PIN);
-  batteryVoltage = (mV * 2) / 1000.0;
-  batteryPercentage = calculateBatteryPercentage(batteryVoltage);
-  Serial.print("Initial battery voltage: ");
-  Serial.print(batteryVoltage);
-  Serial.print(" V (");
-  Serial.print(batteryPercentage);
-  Serial.println("%)");
-
   // Initialize EEPROM
   EEPROM.begin(EEPROM_SIZE);
-
-  // Configure deep sleep wakeup
-  uint64_t bitmask = 1ULL << BUTTON_PIN;
-  esp_sleep_enable_ext1_wakeup(bitmask, ESP_EXT1_WAKEUP_ANY_LOW);
 
   // Check if device is configured
   if (EEPROM.read(CONFIG_FLAG_ADDR) != CONFIG_FLAG) {
@@ -126,19 +101,6 @@ String generateUniqueSSID() {
   return baseName + macStr;
 }
 
-// Calculate battery percentage from voltage
-int calculateBatteryPercentage(float voltage) {
-  if (voltage >= BATT_MAX_VOLTAGE) {
-    return 100;
-  } else if (voltage <= BATT_MIN_VOLTAGE) {
-    return 0;
-  } else {
-    // Linear approximation between min and max voltage
-    float percentage = ((voltage - BATT_MIN_VOLTAGE) / (BATT_MAX_VOLTAGE - BATT_MIN_VOLTAGE)) * 100.0;
-    return (int)percentage;
-  }
-}
-
 // Main loop
 void loop() {
   if (isConfigMode) {
@@ -148,50 +110,11 @@ void loop() {
   } else {
     // Normal operation mode
     checkButton();
-    checkBatteryStatus();
     server.handleClient(); // Continue handling web requests
     
     // Add short delay to prevent watchdog reset
     delay(10);
   }
-}
-
-// Check battery status periodically
-void checkBatteryStatus() {
-  if (millis() - lastBatteryCheck > 60000) { // Check every minute
-    lastBatteryCheck = millis();
-    batteryVoltage = getBatteryVoltage();
-    batteryPercentage = calculateBatteryPercentage(batteryVoltage);
-    Serial.print("Battery voltage: ");
-    Serial.print(batteryVoltage);
-    Serial.print(" V (");
-    Serial.print(batteryPercentage);
-    Serial.println("%)");
-    
-    if (isLowBattery()) {
-      blinkLED(5, 50); // Fast blink to indicate low battery
-      // Optionally send low battery notification
-      if (WiFi.status() == WL_CONNECTED) {
-        sendLowBatteryAlert();
-      }
-    }
-  }
-}
-
-// Get battery voltage
-float getBatteryVoltage() {
-  long total_mV = 0;
-  for (int i = 0; i < BATT_SAMPLES; i++) {
-    total_mV += analogReadMilliVolts(BATTERY_PIN);
-    delay(5);
-  }
-  float avg_mV = total_mV / BATT_SAMPLES;
-  return (avg_mV * 2) / 1000.0;  // Compensate for onboard voltage divider
-}
-
-// Check if battery is low
-bool isLowBattery() {
-  return batteryPercentage < 25; // Changed to use percentage instead of voltage
 }
 
 // Start configuration mode with AP and captive portal
@@ -243,9 +166,6 @@ bool connectToWiFi() {
     Serial.println(wifi_ssid);
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
-    
-    // Enable WiFi power saving for battery life
-    WiFi.setSleep(true);
     
     // Set up web server routes for normal operation
     server.on("/", HTTP_GET, handleNormalRoot);
@@ -362,8 +282,6 @@ bool sendWebhook() {
                       "\"mac_address\": \"" + WiFi.macAddress() + "\","
                       + locationInfo +
                       "\"ip_address\": \"" + WiFi.localIP().toString() + "\","
-                      "\"battery_voltage\": " + String(batteryVoltage) + ","
-                      "\"battery_percentage\": " + String(batteryPercentage) + ","
                       "\"triggered_at\": " + String(millis() / 1000) +
                       "}";
   
@@ -414,123 +332,8 @@ bool sendEmailAlert() {
                    "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
                    "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                    "<p><strong>" + webhookStatus + "</strong></p>"
-                   "<p><strong>Battery:</strong> " + String(batteryPercentage) + "%</p>"
                    "<p><strong>Time:</strong> " + String(millis() / 1000) + " seconds since device boot</p>"
                    "</div>";
-  message.html.content = htmlMsg.c_str();
-  
-  if (!smtp.connect(&session)) {
-    Serial.println("Error connecting to SMTP server");
-    return false;
-  }
-  
-  if (!MailClient.sendMail(&smtp, &message)) {
-    Serial.println("Error sending email: " + smtp.errorReason());
-    return false;
-  }
-  
-  return true;
-}
-
-// Send low battery alert
-bool sendLowBatteryAlert() {
-  bool notificationSent = false;
-  
-  // Try to send webhook if enabled
-  if (webhook_enabled && webhook_url.length() > 0) {
-    if (sendLowBatteryWebhook()) {
-      Serial.println("Low battery webhook notification sent successfully");
-      notificationSent = true;
-    }
-  }
-  
-  // Try to send email if enabled
-  if (email_enabled && email_server.length() > 0 && email_recipient.length() > 0) {
-    if (sendLowBatteryEmail()) {
-      Serial.println("Low battery email notification sent successfully");
-      notificationSent = true;
-    }
-  }
-  
-  return notificationSent;
-}
-
-// Send low battery alert via webhook
-bool sendLowBatteryWebhook() {
-  if (webhook_url.length() == 0 || !webhook_enabled) {
-    Serial.println("Webhook not configured or disabled");
-    return false;
-  }
-  
-  HTTPClient http;
-  http.begin(webhook_url);
-  http.addHeader("Content-Type", "application/json");
-  
-  // Construct JSON payload
-  String locationInfo = device_location.length() > 0 ? 
-                        "\"location\": \"" + device_location + "\"," : 
-                        "\"location\": \"Not specified\",";
-  
-  String jsonPayload = "{"
-                      "\"event\": \"LOW_BATTERY_WARNING\","
-                      "\"device_id\": \"" + configSSID + "\","
-                      "\"mac_address\": \"" + WiFi.macAddress() + "\","
-                      + locationInfo +
-                      "\"ip_address\": \"" + WiFi.localIP().toString() + "\","
-                      "\"battery_voltage\": " + String(batteryVoltage) + ","
-                      "\"battery_percentage\": " + String(batteryPercentage) + ","
-                      "\"reported_at\": " + String(millis() / 1000) +
-                      "}";
-  
-  int httpCode = http.POST(jsonPayload);
-  
-  if (httpCode > 0) {
-    Serial.print("HTTP Response code: ");
-    Serial.println(httpCode);
-    http.end();
-    return (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_ACCEPTED);
-  } else {
-    Serial.print("Error sending HTTP request: ");
-    Serial.println(http.errorToString(httpCode).c_str());
-    http.end();
-    return false;
-  }
-}
-
-// Send low battery alert via email
-bool sendLowBatteryEmail() {
-  if (email_server.length() == 0 || email_recipient.length() == 0 || !email_enabled) {
-    Serial.println("Email not configured or disabled");
-    return false;
-  }
-  
-  ESP_Mail_Session session;
-  session.server.host_name = email_server.c_str();
-  session.server.port = email_port;
-  session.login.email = email_username.c_str();
-  session.login.password = email_password.c_str();
-  
-  SMTP_Message message;
-  message.sender.name = "Panic Alarm";
-  message.sender.email = email_username.c_str();
-  message.subject = "Panic Alarm - LOW BATTERY WARNING";
-  message.addRecipient("User", email_recipient.c_str());
-  
-  String locationInfo = device_location.length() > 0 ? 
-                        "<p><strong>Location:</strong> " + device_location + "</p>" : 
-                        "<p>No location specified</p>";
-  
-  String webhookStatus = webhook_enabled ? "<p>Webhook notifications: Enabled</p>" : "<p>Webhook notifications: Disabled</p>";
-  
-  String htmlMsg = "<div style='color:orange;'><h1>LOW BATTERY WARNING</h1>"
-                   "<p>Your panic alarm device is running low on battery.</p>"
-                   + locationInfo +
-                   "<p><strong>Device ID:</strong> " + configSSID + "</p>"
-                   "<p><strong>Battery level:</strong> " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</p>"
-                   "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
-                   "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
-                   + webhookStatus +
-                   "<p>Please replace or recharge the battery soon.</p></div>";
   message.html.content = htmlMsg.c_str();
   
   if (!smtp.connect(&session)) {
@@ -707,13 +510,6 @@ void blinkLED(int times, int delayms) {
     digitalWrite(LED_PIN, LOW);
     delay(delayms);
   }
-}
-
-// Enter deep sleep mode to save battery
-void goToDeepSleep() {
-  Serial.println("Going to deep sleep...");
-  delay(100);
-  esp_deep_sleep_start();
 }
 
 // Web handlers
@@ -904,20 +700,6 @@ void handleNormalRoot() {
     notificationStatus = "No notifications enabled!";
   }
   
-  // Determine battery color based on percentage
-  String batteryColor = "#4CAF50"; // Green for good battery
-  if (batteryPercentage < 25) {
-    batteryColor = "#f44336"; // Red for very low
-  } else if (batteryPercentage < 50) {
-    batteryColor = "#ff9800"; // Orange/yellow for low
-  }
-  
-  // Create battery gauge HTML
-  String batteryGauge = "<div class='battery-container'>"
-                        "<div class='battery-level' style='width:" + String(batteryPercentage) + "%; background-color:" + batteryColor + ";'></div>"
-                        "<span class='battery-text'>" + String(batteryPercentage) + "%</span>"
-                        "</div>";
-  
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Panic Alarm Control</title>"
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
@@ -941,8 +723,6 @@ void handleNormalRoot() {
                 "<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>"
                 "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                 "<p><strong>Notification:</strong> " + notificationStatus + "</p>"
-                "<p><strong>Battery Status:</strong></p>" + batteryGauge +
-                "<p class='small-note'>Battery Voltage: " + String(batteryVoltage) + "V</p>"
                 "</div>"
                 "<div class='buttons'>"
                 "<a href='/config' class='button'>Update Configuration</a>";
@@ -1400,35 +1180,6 @@ void handleCss() {
                "}"
                ".toggle-label {"
                "  font-weight: bold;"
-               "}"
-               /* Battery gauge styles */
-               ".battery-container {"
-               "  width: 100%;"
-               "  height: 25px;"
-               "  background-color: #e0e0e0;"
-               "  border-radius: 4px;"
-               "  position: relative;"
-               "  margin: 10px 0;"
-               "  overflow: hidden;"
-               "}"
-               ".battery-level {"
-               "  height: 100%;"
-               "  border-radius: 4px;"
-               "  transition: width 0.5s ease-in-out;"
-               "}"
-               ".battery-text {"
-               "  position: absolute;"
-               "  top: 50%;"
-               "  left: 50%;"
-               "  transform: translate(-50%, -50%);"
-               "  color: #000;"
-               "  font-weight: bold;"
-               "  text-shadow: 0 0 3px #fff;"
-               "}"
-               ".small-note {"
-               "  font-size: 0.85em;"
-               "  color: #777;"
-               "  margin-top: 5px;"
                "}"
                "@media (max-width: 480px) {"
                "  .container {"
