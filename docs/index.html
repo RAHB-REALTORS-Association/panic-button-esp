@@ -69,12 +69,21 @@
       font-size: 2.8rem;
       margin-bottom: 1rem;
       font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 15px;
     }
 
     .header-content p {
       font-size: 1.2rem;
       max-width: 600px;
       opacity: 0.9;
+    }
+
+    .logo-svg {
+      width: 40px;
+      height: 40px;
+      vertical-align: middle;
     }
 
     /* Navigation */
@@ -93,6 +102,10 @@
       align-items: center;
     }
 
+    .nav-links {
+      display: flex;
+    }
+
     .nav-links a {
       color: white;
       text-decoration: none;
@@ -103,6 +116,37 @@
 
     .nav-links a:hover {
       opacity: 0.8;
+    }
+
+    .hamburger-menu {
+      display: none;
+      flex-direction: column;
+      justify-content: space-between;
+      width: 30px;
+      height: 21px;
+      cursor: pointer;
+    }
+
+    .hamburger-menu span {
+      display: block;
+      height: 3px;
+      width: 100%;
+      background-color: white;
+      border-radius: 3px;
+      transition: all 0.3s ease;
+    }
+
+    /* Mobile menu states */
+    .menu-open .hamburger-menu span:nth-child(1) {
+      transform: translateY(9px) rotate(45deg);
+    }
+
+    .menu-open .hamburger-menu span:nth-child(2) {
+      opacity: 0;
+    }
+
+    .menu-open .hamburger-menu span:nth-child(3) {
+      transform: translateY(-9px) rotate(-45deg);
     }
 
     .theme-toggle {
@@ -226,19 +270,29 @@
         font-size: 2.2rem;
       }
       
-      .nav-container {
-        flex-direction: column;
-        gap: 1rem;
+      .hamburger-menu {
+        display: flex;
       }
       
       .nav-links {
+        display: none;
+        flex-direction: column;
+        width: 100%;
+        text-align: center;
+        margin-top: 1rem;
+      }
+      
+      .nav-links.active {
         display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
       }
       
       .nav-links a {
-        margin: 0.5rem;
+        margin: 0.5rem 0;
+        padding: 0.5rem 0;
+      }
+      
+      .nav-container {
+        flex-wrap: wrap;
       }
       
       section {
@@ -325,6 +379,11 @@
 <body>
   <nav>
     <div class="container nav-container">
+      <div class="hamburger-menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
       <div class="nav-links">
         <a href="#">Home</a>
         <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp" target="_blank">GitHub</a>
@@ -340,7 +399,19 @@
 
   <header>
     <div class="container header-content">
-      <h1>🔴 ESP32 Wi-Fi Panic Button</h1>
+      <h1>
+        <svg class="logo-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+          <!-- Outer dark ring -->
+          <circle cx="100" cy="100" r="95" fill="#2f2f2f"/>
+          <!-- Inner gray ring -->
+          <circle cx="100" cy="100" r="75" fill="#444"/>
+          <!-- Core red button -->
+          <circle cx="100" cy="100" r="55" fill="#d32f2f"/>
+          <!-- Gloss effect -->
+          <ellipse cx="85" cy="80" rx="20" ry="12" fill="white" opacity="0.3"/>
+        </svg>
+        ESP32 Wi-Fi Panic Button
+      </h1>
       <p>A standalone emergency alert system with email, webhook notifications and battery monitoring</p>
     </div>
   </header>
@@ -387,7 +458,7 @@
     <section id="hardware">
       <h2>🛠️ Hardware Requirements</h2>
       <ul>
-        <li><strong>Microcontroller:</strong> FireBeetle ESP32-C6 board</li>
+        <li><strong>Microcontroller:</strong> <a href="https://www.dfrobot.com/product-2771.html" target="_blank">FireBeetle ESP32-C6 board</a></li>
         <li><strong>Input:</strong> Tactile button (connected to GPIO 4)</li>
         <li><strong>Indicator:</strong> Status LED (GPIO 15, onboard LED)</li>
         <li><strong>Battery:</strong> LiPo battery connected to onboard JST connector</li>
@@ -589,6 +660,27 @@
   </footer>
 
   <script>
+    // Hamburger menu functionality
+    document.addEventListener('DOMContentLoaded', function() {
+      const hamburger = document.querySelector('.hamburger-menu');
+      const navLinks = document.querySelector('.nav-links');
+      const navContainer = document.querySelector('.nav-container');
+      
+      hamburger.addEventListener('click', function() {
+        navLinks.classList.toggle('active');
+        navContainer.classList.toggle('menu-open');
+      });
+      
+      // Close menu when clicking a link
+      const links = document.querySelectorAll('.nav-links a');
+      links.forEach(link => {
+        link.addEventListener('click', function() {
+          navLinks.classList.remove('active');
+          navContainer.classList.remove('menu-open');
+        });
+      });
+    });
+
     function toggleDarkMode() {
       const body = document.body;
       const modeIcon = document.querySelector('.mode-icon');
