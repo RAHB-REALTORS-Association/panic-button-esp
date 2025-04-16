@@ -72,6 +72,8 @@
       display: flex;
       align-items: center;
       gap: 15px;
+      flex-wrap: nowrap;
+      justify-content: center;
     }
 
     .header-content p {
@@ -98,7 +100,7 @@
 
     .nav-container {
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-end;
       align-items: center;
     }
 
@@ -114,6 +116,10 @@
       transition: opacity 0.3s;
     }
 
+    .nav-links a:last-child {
+      margin-right: 0;
+    }
+
     .nav-links a:hover {
       opacity: 0.8;
     }
@@ -125,6 +131,7 @@
       width: 30px;
       height: 21px;
       cursor: pointer;
+      z-index: 200;
     }
 
     .hamburger-menu span {
@@ -268,18 +275,40 @@
     @media (max-width: 768px) {
       .header-content h1 {
         font-size: 2.2rem;
+        flex-direction: row;
+        justify-content: center;
+        gap: 10px;
+      }
+      
+      .header-content h1 .logo-svg {
+        width: 30px;
+        height: 30px;
       }
       
       .hamburger-menu {
         display: flex;
+        position: absolute;
+        right: 20px;
+        top: 16px;
+      }
+      
+      nav {
+        position: relative;
       }
       
       .nav-links {
         display: none;
+        position: absolute;
+        top: 100%;
+        right: 0;
         flex-direction: column;
         width: 100%;
-        text-align: center;
-        margin-top: 1rem;
+        max-width: 300px;
+        background-color: var(--dark);
+        text-align: right;
+        padding: 1rem;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        border-bottom-left-radius: 8px;
       }
       
       .nav-links.active {
@@ -287,12 +316,13 @@
       }
       
       .nav-links a {
-        margin: 0.5rem 0;
-        padding: 0.5rem 0;
+        margin: 0.8rem 0;
+        padding: 0.3rem 0;
+        font-size: 1.1rem;
       }
       
       .nav-container {
-        flex-wrap: wrap;
+        justify-content: flex-end;
       }
       
       section {
@@ -665,10 +695,22 @@
       const hamburger = document.querySelector('.hamburger-menu');
       const navLinks = document.querySelector('.nav-links');
       const navContainer = document.querySelector('.nav-container');
+      const body = document.body;
       
-      hamburger.addEventListener('click', function() {
+      hamburger.addEventListener('click', function(e) {
+        e.stopPropagation();
         navLinks.classList.toggle('active');
         navContainer.classList.toggle('menu-open');
+      });
+      
+      // Close menu when clicking anywhere outside
+      document.addEventListener('click', function(e) {
+        if (navLinks.classList.contains('active') && 
+            !navLinks.contains(e.target) && 
+            !hamburger.contains(e.target)) {
+          navLinks.classList.remove('active');
+          navContainer.classList.remove('menu-open');
+        }
       });
       
       // Close menu when clicking a link
@@ -678,6 +720,11 @@
           navLinks.classList.remove('active');
           navContainer.classList.remove('menu-open');
         });
+      });
+      
+      // Prevent menu from closing when clicking inside it
+      navLinks.addEventListener('click', function(e) {
+        e.stopPropagation();
       });
     });
 
