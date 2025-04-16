@@ -106,9 +106,20 @@
 
     .nav-container {
       display: flex;
-      justify-content: flex-end;
+      justify-content: space-between;
       align-items: center;
       position: relative;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+    }
+
+    .logo-svg {
+      width: 35px;
+      height: 35px;
+      vertical-align: middle;
     }
 
     .nav-links {
@@ -288,14 +299,13 @@
         font-size: 1.8rem;
         flex-direction: row;
         justify-content: center;
-        gap: 10px;
       }
       
       .header-content p {
         font-size: 1rem;
       }
       
-      .header-content h1 .logo-svg {
+      .logo-svg {
         width: 30px;
         height: 30px;
       }
@@ -428,6 +438,18 @@
 <body>
   <nav>
     <div class="container nav-container">
+      <div class="logo">
+        <svg class="logo-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+          <!-- Outer dark ring -->
+          <circle cx="100" cy="100" r="95" fill="#2f2f2f"/>
+          <!-- Inner gray ring -->
+          <circle cx="100" cy="100" r="75" fill="#444"/>
+          <!-- Core red button -->
+          <circle cx="100" cy="100" r="55" fill="#d32f2f"/>
+          <!-- Gloss effect -->
+          <ellipse cx="85" cy="80" rx="20" ry="12" fill="white" opacity="0.3"/>
+        </svg>
+      </div>
       <div class="hamburger-menu">
         <span></span>
         <span></span>
@@ -449,16 +471,6 @@
   <header>
     <div class="container header-content">
       <h1>
-        <svg class="logo-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-          <!-- Outer dark ring -->
-          <circle cx="100" cy="100" r="95" fill="#2f2f2f"/>
-          <!-- Inner gray ring -->
-          <circle cx="100" cy="100" r="75" fill="#444"/>
-          <!-- Core red button -->
-          <circle cx="100" cy="100" r="55" fill="#d32f2f"/>
-          <!-- Gloss effect -->
-          <ellipse cx="85" cy="80" rx="20" ry="12" fill="white" opacity="0.3"/>
-        </svg>
         ESP32 Wi-Fi Panic Button
       </h1>
       <p>A standalone emergency alert system with email, webhook notifications and battery monitoring</p>
