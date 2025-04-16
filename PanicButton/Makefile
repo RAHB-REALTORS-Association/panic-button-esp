@@ -2,8 +2,8 @@
 PROJECT_NAME = PanicAlarm
 
 # Board settings
-FQBN = esp32:esp32:dfrobot_beetle_esp32c6:PartitionScheme=min_spiffs
-PORT = /dev/cu.usbmodem31101  # Change this to match your port
+FQBN = esp32:esp32:esp32:PartitionScheme=min_spiffs
+PORT = /dev/cu.usbserial-0001  # Change this to match your port
 
 # Paths
 SKETCH_DIR = .
@@ -16,7 +16,7 @@ BUILD_FLAGS = -DESP32_C6 -DHAS_BATTERY_MONITORING=1 -DENABLE_DEEP_SLEEP=false
 # Arduino CLI command
 ARDUINO_CLI = arduino-cli
 COMPILE_ARGS = --fqbn $(FQBN) --build-path $(BUILD_DIR) --output-dir $(OUTPUT_DIR)# --build-property "build.extra_flags=$(BUILD_FLAGS)"
-UPLOAD_ARGS = --fqbn $(FQBN) --port $(PORT)
+UPLOAD_ARGS = --fqbn $(FQBN)# --port $(PORT)
 
 # Default target
 all: compile
@@ -41,8 +41,10 @@ clean:
 	@rm -rf $(BUILD_DIR) $(OUTPUT_DIR)
 
 # Monitor serial port
+#monitor:
+#	$(ARDUINO_CLI) monitor --port $(PORT) --config baudrate=115200
 monitor:
-	$(ARDUINO_CLI) monitor --port $(PORT) --config baudrate=115200
+	$(ARDUINO_CLI) monitor --config baudrate=115200
 
 # Show board info
 board-info:
