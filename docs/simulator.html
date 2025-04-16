@@ -70,6 +70,14 @@
       color: #333;
       font-size: 20px;
       margin-top: 0;
+      display: flex;
+      align-items: center;
+    }
+    
+    .logo {
+      width: 30px;
+      height: 30px;
+      margin-right: 10px;
     }
     
     h2 {
@@ -122,6 +130,10 @@
       background-color: #2196F3;
     }
     
+    .test-webhook {
+      background-color: #9C27B0;
+    }
+    
     .reset {
       background-color: #f44336;
     }
@@ -143,6 +155,7 @@
       margin-bottom: 20px;
       border-radius: 5px;
       overflow: hidden;
+      flex-wrap: wrap;
     }
     
     .tab {
@@ -152,6 +165,7 @@
       background-color: #ddd;
       cursor: pointer;
       font-size: 14px;
+      min-width: 100px;
     }
     
     .tab.active {
@@ -219,6 +233,97 @@
       border-radius: 4px;
       cursor: pointer;
     }
+    
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 20px;
+      margin-right: 10px;
+    }
+    
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 34px;
+    }
+    
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    
+    input:checked + .slider {
+      background-color: #2196F3;
+    }
+    
+    input:checked + .slider:before {
+      transform: translateX(20px);
+    }
+    
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    
+    .toggle-label {
+      font-size: 12px;
+      font-weight: bold;
+    }
+    
+    .battery-container {
+      width: 100%;
+      height: 20px;
+      background-color: #e0e0e0;
+      border-radius: 10px;
+      position: relative;
+      margin: 10px 0;
+      overflow: hidden;
+    }
+    
+    .battery-level {
+      height: 100%;
+      width: 75%;
+      background-color: #4CAF50;
+      transition: width 0.5s ease-in-out;
+    }
+    
+    .battery-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: black;
+      font-weight: bold;
+      font-size: 10px;
+      text-shadow: 0 0 2px white;
+    }
+    
+    .small-note {
+      font-size: 10px;
+      color: #777;
+      margin-top: 3px;
+    }
   </style>
 </head>
 <body>
@@ -230,7 +335,8 @@
       <div class="tab active" onclick="switchTab('setup')">Initial Setup</div>
       <div class="tab" onclick="switchTab('dashboard')">Dashboard</div>
       <div class="tab" onclick="switchTab('config')">Configuration</div>
-      <div class="tab" onclick="switchTab('test')">Test Result</div>
+      <div class="tab" onclick="switchTab('test-email')">Test Email</div>
+      <div class="tab" onclick="switchTab('test-webhook')">Test Webhook</div>
       <div class="tab" onclick="switchTab('reset')">Factory Reset</div>
     </div>
     
@@ -238,7 +344,7 @@
       <div class="mobile-frame">
         <div class="screen">
           <div class="nav-bar">
-            <span class="nav-title" id="nav-title">PanicAlarm_Setup</span>
+            <span class="nav-title" id="nav-title">PanicAlarm_A4CF</span>
             <span class="wifi-icon">📶</span>
           </div>
           
@@ -247,6 +353,12 @@
             <div class="interface-content">
               <h1>Panic Alarm Setup</h1>
               <form action="#" method="post">
+                <div class="section">
+                  <h2>Device Settings</h2>
+                  <label for="location">Location Description:</label>
+                  <input type="text" id="location" name="location" placeholder="e.g. Living Room, Front Door, etc.">
+                </div>
+                
                 <div class="section">
                   <h2>WiFi Settings</h2>
                   <label for="ssid">WiFi SSID:</label>
@@ -257,21 +369,51 @@
                 </div>
                 
                 <div class="section">
-                  <h2>Email Settings</h2>
-                  <label for="email_server">SMTP Server:</label>
-                  <input type="text" id="email_server" name="email_server" placeholder="smtp.gmail.com">
+                  <h2>Notification Settings</h2>
+                  <p style="font-size:11px; color:#666; font-style:italic;">At least one notification method must be enabled.</p>
                   
-                  <label for="email_port">SMTP Port:</label>
-                  <input type="number" id="email_port" name="email_port" value="587">
+                  <div class="toggle-section">
+                    <h3 style="font-size:14px; margin:10px 0 5px 0;">Email Notifications</h3>
+                    <div class="toggle-container">
+                      <label class="switch">
+                        <input type="checkbox" id="email_enabled" name="email_enabled" checked onchange="toggleFieldDisplay('email-fields', this.checked)">
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">Enable Email Notifications</span>
+                    </div>
+                    <div id="email-fields">
+                      <label for="email_server">SMTP Server:</label>
+                      <input type="text" id="email_server" name="email_server" placeholder="smtp.gmail.com">
+                      
+                      <label for="email_port">SMTP Port:</label>
+                      <input type="number" id="email_port" name="email_port" value="587">
+                      
+                      <label for="email_username">Email Username:</label>
+                      <input type="text" id="email_username" name="email_username" placeholder="your.email@gmail.com">
+                      
+                      <label for="email_password">Email Password:</label>
+                      <input type="password" id="email_password" name="email_password" placeholder="App password or email password">
+                      
+                      <label for="email_recipient">Recipient Email:</label>
+                      <input type="email" id="email_recipient" name="email_recipient" placeholder="alert.recipient@example.com">
+                    </div>
+                  </div>
                   
-                  <label for="email_username">Email Username:</label>
-                  <input type="text" id="email_username" name="email_username" placeholder="your.email@gmail.com">
-                  
-                  <label for="email_password">Email Password:</label>
-                  <input type="password" id="email_password" name="email_password" placeholder="App password or email password">
-                  
-                  <label for="email_recipient">Recipient Email:</label>
-                  <input type="email" id="email_recipient" name="email_recipient" placeholder="alert.recipient@example.com">
+                  <div class="toggle-section" style="margin-top:15px;">
+                    <h3 style="font-size:14px; margin:10px 0 5px 0;">Webhook Notifications</h3>
+                    <div class="toggle-container">
+                      <label class="switch">
+                        <input type="checkbox" id="webhook_enabled" name="webhook_enabled" onchange="toggleFieldDisplay('webhook-fields', this.checked)">
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">Enable Webhook Notifications</span>
+                    </div>
+                    <div id="webhook-fields" style="display:none;">
+                      <label for="webhook_url">Webhook URL:</label>
+                      <input type="url" id="webhook_url" name="webhook_url" placeholder="https://example.com/webhook">
+                      <p style="font-size:10px; color:#2196F3; margin-top:3px;">The device will send a JSON payload to this URL when the alarm is triggered.</p>
+                    </div>
+                  </div>
                 </div>
                 
                 <button type="button" class="button" onclick="showSaving()">Save Configuration</button>
@@ -282,18 +424,37 @@
           <!-- Dashboard View -->
           <div class="view" id="dashboard">
             <div class="interface-content">
-              <h1>Panic Alarm Control Panel</h1>
+              <h1>
+                <svg class="logo" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="100" cy="100" r="95" fill="#2f2f2f"/>
+                  <circle cx="100" cy="100" r="75" fill="#444"/>
+                  <circle cx="100" cy="100" r="55" fill="#d32f2f"/>
+                  <ellipse cx="85" cy="80" rx="20" ry="12" fill="white" opacity="0.3"/>
+                </svg>
+                Panic Alarm Control Panel
+              </h1>
               <p>Device is operational and monitoring for panic button presses.</p>
               
               <div class="section status">
+                <p><strong>Device ID:</strong> PanicAlarm_A4CF</p>
+                <p><strong>Location:</strong> Front Door</p>
                 <p><strong>WiFi SSID:</strong> HomeNetwork</p>
                 <p><strong>IP Address:</strong> 192.168.1.105</p>
-                <p><strong>Email Recipient:</strong> alert.recipient@example.com</p>
+                <p><strong>MAC Address:</strong> A4:CF:12:67:AB:12</p>
+                <p><strong>Notification:</strong> Email and Webhook enabled</p>
+                <p><strong>Battery Status:</strong></p>
+                <div class="battery-container">
+                  <div class="battery-level" id="battery-level">
+                    <span class="battery-text" id="battery-text">75%</span>
+                  </div>
+                </div>
+                <p class="small-note">Battery Voltage: 3.82V</p>
               </div>
               
               <div class="buttons">
                 <a href="#" class="button" onclick="switchTab('config')">Update Configuration</a>
-                <a href="#" class="button test" onclick="switchTab('test')">Test Alarm</a>
+                <a href="#" class="button test" onclick="switchTab('test-email')">Test Email</a>
+                <a href="#" class="button test-webhook" onclick="switchTab('test-webhook')">Test Webhook</a>
                 <a href="#" class="button reset" onclick="switchTab('reset')">Factory Reset</a>
               </div>
             </div>
@@ -314,21 +475,57 @@
                 </div>
                 
                 <div class="section">
-                  <h2>Email Settings</h2>
-                  <label for="email_server_update">SMTP Server:</label>
-                  <input type="text" id="email_server_update" name="email_server" value="smtp.gmail.com">
+                  <h2>Notification Settings</h2>
+                  <p style="font-size:11px; color:#666; font-style:italic;">At least one notification method must be enabled.</p>
                   
-                  <label for="email_port_update">SMTP Port:</label>
-                  <input type="number" id="email_port_update" name="email_port" value="587">
+                  <div class="toggle-section">
+                    <h3 style="font-size:14px; margin:10px 0 5px 0;">Email Notifications</h3>
+                    <div class="toggle-container">
+                      <label class="switch">
+                        <input type="checkbox" id="email_enabled_update" name="email_enabled" checked onchange="toggleFieldDisplay('email-fields-update', this.checked)">
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">Enable Email Notifications</span>
+                    </div>
+                    <div id="email-fields-update">
+                      <label for="email_server_update">SMTP Server:</label>
+                      <input type="text" id="email_server_update" name="email_server" value="smtp.gmail.com">
+                      
+                      <label for="email_port_update">SMTP Port:</label>
+                      <input type="number" id="email_port_update" name="email_port" value="587">
+                      
+                      <label for="email_username_update">Email Username:</label>
+                      <input type="text" id="email_username_update" name="email_username" value="your.email@gmail.com">
+                      
+                      <label for="email_password_update">Email Password:</label>
+                      <input type="password" id="email_password_update" name="email_password" value="••••••••">
+                      
+                      <label for="email_recipient_update">Recipient Email:</label>
+                      <input type="email" id="email_recipient_update" name="email_recipient" value="alert.recipient@example.com">
+                    </div>
+                  </div>
                   
-                  <label for="email_username_update">Email Username:</label>
-                  <input type="text" id="email_username_update" name="email_username" value="your.email@gmail.com">
-                  
-                  <label for="email_password_update">Email Password:</label>
-                  <input type="password" id="email_password_update" name="email_password" value="••••••••">
-                  
-                  <label for="email_recipient_update">Recipient Email:</label>
-                  <input type="email" id="email_recipient_update" name="email_recipient" value="alert.recipient@example.com">
+                  <div class="toggle-section" style="margin-top:15px;">
+                    <h3 style="font-size:14px; margin:10px 0 5px 0;">Webhook Notifications</h3>
+                    <div class="toggle-container">
+                      <label class="switch">
+                        <input type="checkbox" id="webhook_enabled_update" name="webhook_enabled" checked onchange="toggleFieldDisplay('webhook-fields-update', this.checked)">
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">Enable Webhook Notifications</span>
+                    </div>
+                    <div id="webhook-fields-update">
+                      <label for="webhook_url_update">Webhook URL:</label>
+                      <input type="url" id="webhook_url_update" name="webhook_url" value="https://example.com/webhook">
+                      <p style="font-size:10px; color:#2196F3; margin-top:3px;">The device will send a JSON payload to this URL when the alarm is triggered.</p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="section">
+                  <h2>Device Settings</h2>
+                  <label for="location_update">Location Description:</label>
+                  <input type="text" id="location_update" name="location" value="Front Door">
                 </div>
                 
                 <button type="button" class="button" onclick="showSaving()">Update Configuration</button>
@@ -340,13 +537,41 @@
             </div>
           </div>
           
-          <!-- Test Result View -->
-          <div class="view" id="test">
+          <!-- Test Email Result View -->
+          <div class="view" id="test-email">
             <div class="interface-content">
               <h1>Test Result</h1>
               <div class="section">
-                <p>Test alert sent successfully!</p>
+                <p>Test email sent successfully!</p>
                 <p>Check your email at alert.recipient@example.com</p>
+              </div>
+              <p>Redirecting to home page in 5 seconds...</p>
+              <div class="spinner"></div>
+              <div style="margin-top: 20px;">
+                <a href="#" class="button" onclick="switchTab('dashboard')">Back to Home</a>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Test Webhook Result View -->
+          <div class="view" id="test-webhook">
+            <div class="interface-content">
+              <h1>Test Result</h1>
+              <div class="section">
+                <p>Test webhook sent successfully!</p>
+                <p>JSON payload delivered to:</p>
+                <p style="font-size:11px; word-break:break-all;">https://example.com/webhook</p>
+                <h3 style="font-size:14px; margin:10px 0;">Payload:</h3>
+                <pre style="font-size:10px; background:#f5f5f5; padding:5px; overflow:auto; max-height:120px; border-radius:3px;">{
+  "event": "PANIC_ALARM_TRIGGERED",
+  "device_id": "PanicAlarm_A4CF",
+  "mac_address": "A4:CF:12:67:AB:12",
+  "location": "Front Door",
+  "ip_address": "192.168.1.105",
+  "battery_voltage": 3.82,
+  "battery_percentage": 75,
+  "triggered_at": 1428
+}</pre>
               </div>
               <p>Redirecting to home page in 5 seconds...</p>
               <div class="spinner"></div>
@@ -384,7 +609,7 @@
           <div class="view" id="resetting">
             <div class="interface-content loading">
               <h1>Factory Reset</h1>
-              <p>Device is resetting. Connect to the WiFi network "PanicAlarm_Setup" to set up the device again.</p>
+              <p>Device is resetting. Connect to the WiFi network "PanicAlarm_A4CF" to set up the device again.</p>
               <div class="spinner"></div>
             </div>
           </div>
@@ -396,7 +621,7 @@
       <h2>Interface Details</h2>
       <div id="page-description">
         <h3>Initial Setup</h3>
-        <p>This is the first screen users see when connecting to the ESP32's captive portal after a factory reset. Users enter their WiFi credentials and email notification settings here.</p>
+        <p>This is the first screen users see when connecting to the ESP32's captive portal after a factory reset. Users enter their WiFi credentials, notification settings (email and/or webhook), and device location.</p>
       </div>
     </div>
     
@@ -407,21 +632,25 @@
   </div>
   
   <script>
-    const views = ['setup', 'dashboard', 'config', 'test', 'reset'];
-    const titles = ['PanicAlarm_Setup', 'Panic Alarm (192.168.1.105)', 'Panic Alarm - Config', 'Panic Alarm - Test', 'Panic Alarm - Reset'];
+    const views = ['setup', 'dashboard', 'config', 'test-email', 'test-webhook', 'reset'];
+    const titles = ['PanicAlarm_A4CF', 'Panic Alarm (192.168.1.105)', 'Panic Alarm - Config', 'Panic Alarm - Test Email', 'Panic Alarm - Test Webhook', 'Panic Alarm - Reset'];
     const descriptions = {
-      'setup': `<h3>Initial Setup</h3><p>This is the first screen users see when connecting to the ESP32's captive portal after a factory reset. Users enter their WiFi credentials and email notification settings here.</p>`,
+      'setup': `<h3>Initial Setup</h3><p>This is the first screen users see when connecting to the ESP32's captive portal after a factory reset. Users enter their WiFi credentials, notification settings (email and/or webhook), and device location.</p>`,
       
-      'dashboard': `<h3>Dashboard</h3><p>The main control panel that appears after successful WiFi connection. Shows the current status and provides options to update settings, test the alarm, or perform a factory reset.</p>`,
+      'dashboard': `<h3>Dashboard</h3><p>The main control panel that appears after successful WiFi connection. Shows the current status, battery level with color-coded gauge, and provides options to update settings, test notifications, or perform a factory reset.</p>`,
       
-      'config': `<h3>Configuration Page</h3><p>Allows users to update their WiFi and email settings after initial setup. All fields are pre-populated with current values.</p>`,
+      'config': `<h3>Configuration Page</h3><p>Allows users to update their WiFi, notification settings (email and webhook), and device location after initial setup. All fields are pre-populated with current values.</p>`,
       
-      'test': `<h3>Test Result</h3><p>Appears after testing the alarm system. Shows whether the test email was sent successfully and automatically redirects back to the dashboard after a few seconds.</p>`,
+      'test-email': `<h3>Test Email Result</h3><p>Appears after testing the email notification system. Shows whether the test email was sent successfully.</p>`,
+      
+      'test-webhook': `<h3>Test Webhook Result</h3><p>Appears after testing the webhook integration. Shows the JSON payload that was sent to the configured webhook URL.</p>`,
       
       'reset': `<h3>Factory Reset</h3><p>Confirmation screen before performing a factory reset. Ensures users don't accidentally erase their configuration.</p>`
     };
     
     let currentViewIndex = 0;
+    let batteryLevel = 75;
+    let batteryDirection = -1; // Start decreasing
     
     function switchTab(viewId) {
       document.querySelectorAll('.tab').forEach(tab => {
@@ -471,6 +700,46 @@
       currentViewIndex = (currentViewIndex - 1 + views.length) % views.length;
       switchTab(views[currentViewIndex]);
     }
+    
+    function toggleFieldDisplay(elementId, isVisible) {
+      document.getElementById(elementId).style.display = isVisible ? 'block' : 'none';
+    }
+    
+    function updateBatteryDisplay() {
+      // Update battery level
+      batteryLevel += batteryDirection * 5;
+      
+      // Change direction when reaching limits
+      if (batteryLevel <= 10) {
+        batteryDirection = 1; // Start increasing
+      } else if (batteryLevel >= 90) {
+        batteryDirection = -1; // Start decreasing
+      }
+      
+      // Update visual display
+      const batteryElement = document.getElementById('battery-level');
+      const batteryText = document.getElementById('battery-text');
+      
+      batteryElement.style.width = batteryLevel + '%';
+      batteryText.textContent = batteryLevel + '%';
+      
+      // Update color based on level
+      if (batteryLevel < 25) {
+        batteryElement.style.backgroundColor = '#f44336'; // Red
+      } else if (batteryLevel < 50) {
+        batteryElement.style.backgroundColor = '#ff9800'; // Orange
+      } else {
+        batteryElement.style.backgroundColor = '#4CAF50'; // Green
+      }
+      
+      // Schedule next update
+      setTimeout(updateBatteryDisplay, 3000);
+    }
+    
+    // Start the battery animation on load
+    document.addEventListener('DOMContentLoaded', function() {
+      updateBatteryDisplay();
+    });
   </script>
 </body>
 </html>
