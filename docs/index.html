@@ -3,6 +3,29 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Favicon Setup -->
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon/favicon-16x16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="favicon/favicon-96x96.png">
+  <link rel="icon" type="image/x-icon" href="favicon/favicon.ico">
+  
+  <!-- Apple Touch Icons -->
+  <link rel="apple-touch-icon" sizes="57x57" href="favicon/apple-touch-icon-57x57.png">
+  <link rel="apple-touch-icon" sizes="60x60" href="favicon/apple-touch-icon-60x60.png">
+  <link rel="apple-touch-icon" sizes="72x72" href="favicon/apple-touch-icon-72x72.png">
+  <link rel="apple-touch-icon" sizes="76x76" href="favicon/apple-touch-icon-76x76.png">
+  <link rel="apple-touch-icon" sizes="114x114" href="favicon/apple-touch-icon-114x114.png">
+  <link rel="apple-touch-icon" sizes="120x120" href="favicon/apple-touch-icon-120x120.png">
+  <link rel="apple-touch-icon" sizes="144x144" href="favicon/apple-touch-icon-144x144.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="favicon/apple-touch-icon-152x152.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon-180x180.png">
+  
+  <!-- Android Chrome Icons -->
+  <link rel="icon" type="image/png" sizes="192x192" href="favicon/android-chrome-192x192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="favicon/android-chrome-512x512.png">
+  
+  <!-- Web Manifest -->
+  <link rel="manifest" href="favicon/site.webmanifest">
   <title>ESP32 Panic Button Documentation</title>
   <style>
     :root {
@@ -88,7 +111,7 @@
       opacity: 0.9;
     }
 
-    .logo-svg {
+    .logo-svg, .logo img {
       width: 40px;
       height: 40px;
       vertical-align: middle;
@@ -116,7 +139,7 @@
       align-items: center;
     }
 
-    .logo-svg {
+    .logo-svg, .logo img {
       width: 35px;
       height: 35px;
       vertical-align: middle;
@@ -305,7 +328,7 @@
         font-size: 1rem;
       }
       
-      .logo-svg {
+      .logo-svg, .logo img {
         width: 30px;
         height: 30px;
       }
@@ -439,16 +462,13 @@
   <nav>
     <div class="container nav-container">
       <div class="logo">
-        <svg class="logo-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-          <!-- Outer dark ring -->
+        <!--<svg class="logo-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
           <circle cx="100" cy="100" r="95" fill="#2f2f2f"/>
-          <!-- Inner gray ring -->
           <circle cx="100" cy="100" r="75" fill="#444"/>
-          <!-- Core red button -->
           <circle cx="100" cy="100" r="55" fill="#d32f2f"/>
-          <!-- Gloss effect -->
           <ellipse cx="85" cy="80" rx="20" ry="12" fill="white" opacity="0.3"/>
-        </svg>
+        </svg>-->
+        <img src="images/logo/logo-medium.png" alt="Panic Button Logo" class="main-logo">
       </div>
       <div class="hamburger-menu">
         <span></span>
