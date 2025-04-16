@@ -19,8 +19,8 @@
 #define WEBHOOK_URL_ADDR 504 // New address for webhook URL
 #define WEBHOOK_ENABLED_ADDR 674 // New address for webhook enabled flag
 #define EMAIL_ENABLED_ADDR 675 // New address for email enabled flag
-#define BUTTON_PIN 4    // FireBeetle suitable GPIO pin
-#define LED_PIN 15      // FireBeetle's onboard LED
+#define BUTTON_PIN 0    // Suitable GPIO pin
+#define LED_PIN 2       // Onboard LED
 #define DNS_PORT 53
 #define WEBSERVER_PORT 80
 #define CONFIG_FLAG 0xAA
