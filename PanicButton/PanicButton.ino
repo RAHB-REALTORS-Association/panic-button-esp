@@ -348,30 +348,107 @@ bool sendWebhook() {
   }
   
   HTTPClient http;
-  http.begin(webhook_url);
+  
+  // Add debugging information
+  Serial.println("Sending webhook to URL: " + webhook_url);
+  
+  // Begin HTTP connection - verify the URL has http:// or https:// prefix
+  if (webhook_url.startsWith("http://") || webhook_url.startsWith("https://")) {
+    http.begin(webhook_url);
+  } else {
+    String correctedUrl = "https://" + webhook_url;
+    Serial.println("URL didn't have protocol, using: " + correctedUrl);
+    http.begin(correctedUrl);
+  }
+  
+  // Set headers
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("User-Agent", "ESP32PanicAlarm/1.0");
   
-  // Construct JSON payload
-  String locationInfo = device_location.length() > 0 ? 
-                        "\"location\": \"" + device_location + "\"," : 
-                        "\"location\": \"Not specified\",";
+  // Escape special characters in strings
+  String deviceId = configSSID;
+  deviceId.replace("\"", "\\\"");
   
-  String jsonPayload = "{"
-                      "\"event\": \"PANIC_ALARM_TRIGGERED\","
-                      "\"device_id\": \"" + configSSID + "\","
-                      "\"mac_address\": \"" + WiFi.macAddress() + "\","
-                      + locationInfo +
-                      "\"ip_address\": \"" + WiFi.localIP().toString() + "\","
-                      "\"battery_voltage\": " + String(batteryVoltage) + ","
-                      "\"battery_percentage\": " + String(batteryPercentage) + ","
-                      "\"triggered_at\": " + String(millis() / 1000) +
-                      "}";
+  String location = device_location.length() > 0 ? device_location : "Not specified";
+  location.replace("\"", "\\\"");
+  location.replace("\\", "\\\\");
   
+  String ipAddr = WiFi.localIP().toString();
+  String macAddr = WiFi.macAddress();
+  String timeStr = String(millis() / 1000);
+  
+  // Create message body with escaped newlines
+  String msgBody = String("Device ID: ") + deviceId + "\\n" +
+                   "Location: " + location + "\\n" +
+                   "IP Address: " + ipAddr + "\\n" +
+                   "MAC Address: " + macAddr + "\\n" +
+                   "Time: " + timeStr + " seconds since boot";
+  
+  String titleText = "PANIC ALARM TRIGGERED";
+  String jsonPayload;
+  
+  // Determine service type from URL
+  if (webhook_url.indexOf("discord.com") > 0) {
+    // Discord webhook format
+    jsonPayload = "{\"content\":\"⚠️ **" + titleText + "** ⚠️\\n" + msgBody + 
+                  "\",\"embeds\":[{\"title\":\"Panic Alarm Alert\",\"color\":16711680,\"description\":\"A panic button has been activated at " + 
+                  location + "\"}]}";
+  }
+  else if (webhook_url.indexOf("chat.googleapis.com") > 0) {
+    // Google Chat webhook format
+    jsonPayload = "{\"text\":\"⚠️ *" + titleText + "* ⚠️\\n" + msgBody + "\"}";
+  }
+  else if (webhook_url.indexOf("hooks.slack.com") > 0) {
+    // Slack webhook format
+    jsonPayload = "{\"text\":\"⚠️ *" + titleText + "* ⚠️\",\"attachments\":[{\"color\":\"#FF0000\",\"fields\":[" +
+                  "{\"title\":\"Device ID\",\"value\":\"" + deviceId + "\",\"short\":true}," +
+                  "{\"title\":\"Location\",\"value\":\"" + location + "\",\"short\":true}," +
+                  "{\"title\":\"IP Address\",\"value\":\"" + ipAddr + "\",\"short\":true}," +
+                  "{\"title\":\"MAC Address\",\"value\":\"" + macAddr + "\",\"short\":true}," +
+                  "{\"title\":\"Time\",\"value\":\"" + timeStr + " seconds since boot\",\"short\":false}" +
+                  "]}]}";
+  }
+  else if (webhook_url.indexOf("webhook.office.com") > 0) {
+    // Microsoft Teams webhook format
+    jsonPayload = "{";
+    jsonPayload += "\"@type\":\"MessageCard\",";
+    jsonPayload += "\"@context\":\"http://schema.org/extensions\",";
+    jsonPayload += "\"themeColor\":\"FF0000\",";
+    jsonPayload += "\"summary\":\"" + titleText + "\",";
+    jsonPayload += "\"sections\":[{";
+    jsonPayload += "\"activityTitle\":\"⚠️ " + titleText + "\",";
+    jsonPayload += "\"facts\":[";
+    jsonPayload += "{\"name\":\"Device ID\",\"value\":\"" + deviceId + "\"},";
+    jsonPayload += "{\"name\":\"Location\",\"value\":\"" + location + "\"},";
+    jsonPayload += "{\"name\":\"IP Address\",\"value\":\"" + ipAddr + "\"},";
+    jsonPayload += "{\"name\":\"MAC Address\",\"value\":\"" + macAddr + "\"},";
+    jsonPayload += "{\"name\":\"Time\",\"value\":\"" + timeStr + " seconds since boot\"}";
+    jsonPayload += "],\"markdown\":true}]}";
+  }
+  else {
+    // Generic webhook format for other services
+    jsonPayload = "{\"event\":\"" + titleText + "\",";
+    jsonPayload += "\"device_id\":\"" + deviceId + "\",";
+    jsonPayload += "\"mac_address\":\"" + macAddr + "\",";
+    jsonPayload += "\"location\":\"" + location + "\",";
+    jsonPayload += "\"ip_address\":\"" + ipAddr + "\",";
+    jsonPayload += "\"triggered_at\":" + timeStr + "}";
+  }
+  
+  // Log the payload for debugging
+  Serial.println("Sending payload: " + jsonPayload);
+  
+  // Send the request
   int httpCode = http.POST(jsonPayload);
   
   if (httpCode > 0) {
     Serial.print("HTTP Response code: ");
     Serial.println(httpCode);
+    
+    // Get response for debugging
+    String payload = http.getString();
+    Serial.println("Response: " + payload);
+    
     http.end();
     return (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_ACCEPTED);
   } else {
