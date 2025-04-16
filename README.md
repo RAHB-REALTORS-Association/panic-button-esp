@@ -21,7 +21,7 @@ The firmware is optimized for:
 
 ### FireBeetle ESP32-C6
 - [DFRobot FireBeetle 2 ESP32-C6 board](https://www.dfrobot.com/product-2771.html)
-- Tactile button (connected to GPIO 4)
+- Momentary push-button switch (connected to GPIO 4)
 - Onboard LED (GPIO 15)
 - Battery monitoring via ADC (GPIO 0)
 
