@@ -102,6 +102,7 @@
       display: flex;
       justify-content: flex-end;
       align-items: center;
+      position: relative;
     }
 
     .nav-links {
@@ -145,7 +146,9 @@
 
     /* Mobile menu states */
     .menu-open .hamburger-menu span:nth-child(1) {
-      transform: translateY(9px) rotate(45deg);
+      transform: rotate(45deg);
+      position: relative;
+      top: 9px;
     }
 
     .menu-open .hamburger-menu span:nth-child(2) {
@@ -153,7 +156,9 @@
     }
 
     .menu-open .hamburger-menu span:nth-child(3) {
-      transform: translateY(-9px) rotate(-45deg);
+      transform: rotate(-45deg);
+      position: relative;
+      top: -9px;
     }
 
     .theme-toggle {
@@ -289,26 +294,22 @@
         display: flex;
         position: absolute;
         right: 20px;
-        top: 16px;
-      }
-      
-      nav {
-        position: relative;
+        top: 50%;
+        transform: translateY(-50%);
       }
       
       .nav-links {
         display: none;
-        position: absolute;
-        top: 100%;
+        position: fixed;
+        top: 0;
         right: 0;
+        bottom: 0;
+        width: 300px;
         flex-direction: column;
-        width: 100%;
-        max-width: 300px;
         background-color: var(--dark);
         text-align: right;
-        padding: 1rem;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-        border-bottom-left-radius: 8px;
+        padding: 80px 40px 20px 20px;
+        z-index: 150;
       }
       
       .nav-links.active {
@@ -316,13 +317,17 @@
       }
       
       .nav-links a {
-        margin: 0.8rem 0;
-        padding: 0.3rem 0;
-        font-size: 1.1rem;
+        margin: 0;
+        padding: 12px 0;
+        font-size: 1.25rem;
+        font-weight: 500;
       }
       
-      .nav-container {
-        justify-content: flex-end;
+      /* X close button */
+      .menu-open .hamburger-menu {
+        position: fixed;
+        top: 24px;
+        right: 20px;
       }
       
       section {
@@ -697,19 +702,15 @@
       const navContainer = document.querySelector('.nav-container');
       const body = document.body;
       
-      hamburger.addEventListener('click', function(e) {
-        e.stopPropagation();
+      hamburger.addEventListener('click', function() {
         navLinks.classList.toggle('active');
         navContainer.classList.toggle('menu-open');
-      });
-      
-      // Close menu when clicking anywhere outside
-      document.addEventListener('click', function(e) {
-        if (navLinks.classList.contains('active') && 
-            !navLinks.contains(e.target) && 
-            !hamburger.contains(e.target)) {
-          navLinks.classList.remove('active');
-          navContainer.classList.remove('menu-open');
+        
+        // If menu becomes active, add no-scroll to body
+        if (navLinks.classList.contains('active')) {
+          body.style.overflow = 'hidden';
+        } else {
+          body.style.overflow = '';
         }
       });
       
@@ -719,12 +720,8 @@
         link.addEventListener('click', function() {
           navLinks.classList.remove('active');
           navContainer.classList.remove('menu-open');
+          body.style.overflow = '';
         });
-      });
-      
-      // Prevent menu from closing when clicking inside it
-      navLinks.addEventListener('click', function(e) {
-        e.stopPropagation();
       });
     });
 
