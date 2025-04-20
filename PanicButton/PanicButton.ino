@@ -47,6 +47,7 @@ String webhook_url = "";
 bool webhook_enabled = false;
 bool email_enabled = true; // Flag to enable email (default to true for backward compatibility)
 bool alarmTriggered = false;
+bool lowBatteryAlertSent = false; // Flag to track if low battery alert was sent
 unsigned long lastDebounceTime = 0;
 unsigned long debounceDelay = 50;
 int buttonState = HIGH;
@@ -54,6 +55,7 @@ int lastButtonState = HIGH;
 float batteryVoltage = 0.0;
 int batteryPercentage = 0;
 unsigned long lastBatteryCheck = 0;
+String hardwarePlatform = ""; // Store hardware platform info
 
 WebServer server(WEBSERVER_PORT);
 DNSServer dnsServer;
@@ -69,6 +71,20 @@ void setup() {
   digitalWrite(LED_PIN, LOW);
   pinMode(BATTERY_PIN, INPUT);
   analogReadResolution(12); // 12-bit ADC resolution
+
+  // Determine hardware platform
+  #if defined(CONFIG_IDF_TARGET_ESP32C6)
+    hardwarePlatform = "FireBeetle 2 ESP32-C6";
+  #elif defined(CONFIG_IDF_TARGET_ESP32C3)
+    hardwarePlatform = "FireBeetle 2 ESP32-C3";
+  #elif defined(CONFIG_IDF_TARGET_ESP32E)
+    hardwarePlatform = "FireBeetle 2 ESP32-E";
+  #else
+    hardwarePlatform = "ESP32 Dev Kit";
+  #endif
+
+  Serial.print("Hardware Platform: ");
+  Serial.println(hardwarePlatform);
 
   // Generate unique SSID based on MAC
   configSSID = generateUniqueSSID();
@@ -168,11 +184,14 @@ void checkBatteryStatus() {
     Serial.print(batteryPercentage);
     Serial.println("%)");
     
-    if (isLowBattery()) {
+    if (isLowBattery() && !lowBatteryAlertSent) {
       blinkLED(5, 50); // Fast blink to indicate low battery
-      // Optionally send low battery notification
+      // Send low battery notification once per boot
       if (WiFi.status() == WL_CONNECTED) {
-        sendLowBatteryAlert();
+        if (sendLowBatteryAlert()) {
+          lowBatteryAlertSent = true; // Set flag to prevent repeated alerts
+          Serial.println("Low battery alert sent. No more alerts will be sent until reboot.");
+        }
       }
     }
   }
@@ -191,7 +210,7 @@ float getBatteryVoltage() {
 
 // Check if battery is low
 bool isLowBattery() {
-  return batteryPercentage < 25; // Changed to use percentage instead of voltage
+  return batteryPercentage < 50;
 }
 
 // Start configuration mode with AP and captive portal
@@ -379,9 +398,11 @@ bool sendWebhook() {
   
   // Create message body with escaped newlines
   String msgBody = String("Device ID: ") + deviceId + "\\n" +
+                   "Hardware: " + hardwarePlatform + "\\n" +
                    "Location: " + location + "\\n" +
                    "IP Address: " + ipAddr + "\\n" +
                    "MAC Address: " + macAddr + "\\n" +
+                   "Battery: " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)\\n" +
                    "Time: " + timeStr + " seconds since boot";
   
   String titleText = "PANIC ALARM TRIGGERED";
@@ -402,9 +423,11 @@ bool sendWebhook() {
     // Slack webhook format
     jsonPayload = "{\"text\":\"⚠️ *" + titleText + "* ⚠️\",\"attachments\":[{\"color\":\"#FF0000\",\"fields\":[" +
                   "{\"title\":\"Device ID\",\"value\":\"" + deviceId + "\",\"short\":true}," +
+                  "{\"title\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\",\"short\":true}," +
                   "{\"title\":\"Location\",\"value\":\"" + location + "\",\"short\":true}," +
                   "{\"title\":\"IP Address\",\"value\":\"" + ipAddr + "\",\"short\":true}," +
                   "{\"title\":\"MAC Address\",\"value\":\"" + macAddr + "\",\"short\":true}," +
+                  "{\"title\":\"Battery\",\"value\":\"" + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)\",\"short\":true}," +
                   "{\"title\":\"Time\",\"value\":\"" + timeStr + " seconds since boot\",\"short\":false}" +
                   "]}]}";
   }
@@ -419,9 +442,11 @@ bool sendWebhook() {
     jsonPayload += "\"activityTitle\":\"⚠️ " + titleText + "\",";
     jsonPayload += "\"facts\":[";
     jsonPayload += "{\"name\":\"Device ID\",\"value\":\"" + deviceId + "\"},";
+    jsonPayload += "{\"name\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\"},";
     jsonPayload += "{\"name\":\"Location\",\"value\":\"" + location + "\"},";
     jsonPayload += "{\"name\":\"IP Address\",\"value\":\"" + ipAddr + "\"},";
     jsonPayload += "{\"name\":\"MAC Address\",\"value\":\"" + macAddr + "\"},";
+    jsonPayload += "{\"name\":\"Battery\",\"value\":\"" + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)\"},";
     jsonPayload += "{\"name\":\"Time\",\"value\":\"" + timeStr + " seconds since boot\"}";
     jsonPayload += "],\"markdown\":true}]}";
   }
@@ -429,9 +454,12 @@ bool sendWebhook() {
     // Generic webhook format for other services
     jsonPayload = "{\"event\":\"" + titleText + "\",";
     jsonPayload += "\"device_id\":\"" + deviceId + "\",";
+    jsonPayload += "\"hardware\":\"" + hardwarePlatform + "\",";
     jsonPayload += "\"mac_address\":\"" + macAddr + "\",";
     jsonPayload += "\"location\":\"" + location + "\",";
     jsonPayload += "\"ip_address\":\"" + ipAddr + "\",";
+    jsonPayload += "\"battery_percentage\":" + String(batteryPercentage) + ",";
+    jsonPayload += "\"battery_voltage\":" + String(batteryVoltage) + ",";
     jsonPayload += "\"triggered_at\":" + timeStr + "}";
   }
   
@@ -487,11 +515,12 @@ bool sendEmailAlert() {
   String htmlMsg = "<div style='color:red;'><h1>PANIC ALARM TRIGGERED</h1>"
                    "<p>The panic button has been activated.</p>"
                    "<p><strong>Device ID:</strong> " + configSSID + "</p>"
+                   "<p><strong>Hardware:</strong> " + hardwarePlatform + "</p>"
                    + locationInfo +
                    "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
                    "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                    "<p><strong>" + webhookStatus + "</strong></p>"
-                   "<p><strong>Battery:</strong> " + String(batteryPercentage) + "%</p>"
+                   "<p><strong>Battery:</strong> " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</p>"
                    "<p><strong>Time:</strong> " + String(millis() / 1000) + " seconds since device boot</p>"
                    "</div>";
   message.html.content = htmlMsg.c_str();
@@ -540,7 +569,15 @@ bool sendLowBatteryWebhook() {
   }
   
   HTTPClient http;
-  http.begin(webhook_url);
+  
+  // Ensure URL has protocol
+  if (webhook_url.startsWith("http://") || webhook_url.startsWith("https://")) {
+    http.begin(webhook_url);
+  } else {
+    String correctedUrl = "https://" + webhook_url;
+    http.begin(correctedUrl);
+  }
+  
   http.addHeader("Content-Type", "application/json");
   
   // Construct JSON payload
@@ -551,6 +588,7 @@ bool sendLowBatteryWebhook() {
   String jsonPayload = "{"
                       "\"event\": \"LOW_BATTERY_WARNING\","
                       "\"device_id\": \"" + configSSID + "\","
+                      "\"hardware\": \"" + hardwarePlatform + "\","
                       "\"mac_address\": \"" + WiFi.macAddress() + "\","
                       + locationInfo +
                       "\"ip_address\": \"" + WiFi.localIP().toString() + "\","
@@ -601,8 +639,9 @@ bool sendLowBatteryEmail() {
   
   String htmlMsg = "<div style='color:orange;'><h1>LOW BATTERY WARNING</h1>"
                    "<p>Your panic alarm device is running low on battery.</p>"
-                   + locationInfo +
                    "<p><strong>Device ID:</strong> " + configSSID + "</p>"
+                   "<p><strong>Hardware:</strong> " + hardwarePlatform + "</p>"
+                   + locationInfo +
                    "<p><strong>Battery level:</strong> " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</p>"
                    "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
                    "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
@@ -693,6 +732,7 @@ void loadConfig() {
   
   // Print loaded configuration
   Serial.println("Loaded configuration:");
+  Serial.println("Hardware platform: " + hardwarePlatform);
   Serial.println("WiFi SSID: " + wifi_ssid);
   Serial.println("Email server: " + email_server);
   Serial.println("Email port: " + String(email_port));
@@ -836,6 +876,7 @@ void handleRoot() {
                 "<h1>Panic Alarm Setup</h1>"
                 "</div>"
                 "<p><strong>Device ID: </strong>" + configSSID + "</p>"
+                "<p><strong>Hardware: </strong>" + hardwarePlatform + "</p>"
                 "<form action='/setup' method='post' onsubmit='return validateForm()'>"
 
                 "<div class='section'>"
@@ -1013,6 +1054,7 @@ void handleNormalRoot() {
                 "<p>Device is operational and monitoring for panic button presses.</p>"
                 "<div class='status'>"
                 "<p><strong>Device ID:</strong> " + configSSID + "</p>"
+                "<p><strong>Hardware Platform:</strong> " + hardwarePlatform + "</p>"
                 "<p><strong>Location:</strong> " + (device_location.length() > 0 ? device_location : "Not specified") + "</p>"
                 "<p><strong>WiFi SSID:</strong> " + wifi_ssid + "</p>"
                 "<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>"
@@ -1081,6 +1123,7 @@ void handleConfigPage() {
                 "<h1>Update Configuration</h1>"
                 "</div>"
                 "<p><strong>Device ID: </strong>" + configSSID + "</p>"
+                "<p><strong>Hardware: </strong>" + hardwarePlatform + "</p>"
                 "<form action='/update' method='post' onsubmit='return validateForm()'>"
 
                 "<div class='section'>"
