@@ -30,6 +30,7 @@
 #define BATT_SAMPLES 10         // Battery read averaging
 #define BATT_MAX_VOLTAGE 4.2    // Maximum battery voltage (fully charged)
 #define BATT_MIN_VOLTAGE 3.2    // Minimum battery voltage (depleted)
+#define WIFI_CHECK_INTERVAL 30000 // Check WiFi signal every 30 seconds
 
 // Global variables
 bool isConfigMode = false;
@@ -47,6 +48,7 @@ String webhook_url = "";
 bool webhook_enabled = false;
 bool email_enabled = true; // Flag to enable email (default to true for backward compatibility)
 bool alarmTriggered = false;
+bool lowBatteryAlertSent = false; // Flag to track if low battery alert was sent
 unsigned long lastDebounceTime = 0;
 unsigned long debounceDelay = 50;
 int buttonState = HIGH;
@@ -54,6 +56,46 @@ int lastButtonState = HIGH;
 float batteryVoltage = 0.0;
 int batteryPercentage = 0;
 unsigned long lastBatteryCheck = 0;
+String hardwarePlatform = ""; // Store hardware platform info
+int rssi = 0;                 // WiFi signal strength in dBm
+String signalQuality = "";    // Signal quality rating
+unsigned long lastWifiCheck = 0; // Last time WiFi signal was checked
+String firmwareVersion = "1.1.0"; // Firmware version
+
+// Forward declarations
+void loadConfig();
+void saveConfig(String ssid, String password, String server, int port, 
+                String username, String emailpass, String recipient, String location,
+                String webhook, bool webhook_en, bool email_en);
+void blinkLED(int times, int delayms);
+void goToDeepSleep();
+void startConfigMode();
+bool connectToWiFi();
+void checkButton();
+void triggerAlarm();
+bool sendWebhook();
+bool sendEmailAlert();
+bool sendLowBatteryAlert();
+bool sendLowBatteryWebhook();
+bool sendLowBatteryEmail();
+float getBatteryVoltage();
+bool isLowBattery();
+void checkBatteryStatus();
+void checkWiFiSignal();
+String getSignalQuality(int rssi);
+String generateUniqueSSID();
+int calculateBatteryPercentage(float voltage);
+
+// Web handlers
+void handleRoot();
+void handleSetup();
+void handleNormalRoot();
+void handleConfigPage();
+void handleUpdate();
+void handleTestEmail();
+void handleTestWebhook();
+void handleReset();
+void handleCss();
 
 WebServer server(WEBSERVER_PORT);
 DNSServer dnsServer;
@@ -69,6 +111,20 @@ void setup() {
   digitalWrite(LED_PIN, LOW);
   pinMode(BATTERY_PIN, INPUT);
   analogReadResolution(12); // 12-bit ADC resolution
+
+  // Determine hardware platform
+  #if defined(CONFIG_IDF_TARGET_ESP32C6)
+    hardwarePlatform = "FireBeetle 2 ESP32-C6";
+  #elif defined(CONFIG_IDF_TARGET_ESP32C3)
+    hardwarePlatform = "FireBeetle 2 ESP32-C3";
+  #elif defined(CONFIG_IDF_TARGET_ESP32E)
+    hardwarePlatform = "FireBeetle 2 ESP32-E";
+  #else
+    hardwarePlatform = "ESP32 Dev Kit";
+  #endif
+
+  Serial.print("Hardware Platform: ");
+  Serial.println(hardwarePlatform);
 
   // Generate unique SSID based on MAC
   configSSID = generateUniqueSSID();
@@ -100,6 +156,7 @@ void setup() {
     loadConfig();
     if (connectToWiFi()) {
       Serial.println("Connected to WiFi. Starting normal operation.");
+      checkWiFiSignal(); // Get initial signal strength
       blinkLED(3, 200);
     } else {
       Serial.println("Failed to connect to WiFi. Starting setup mode...");
@@ -139,6 +196,37 @@ int calculateBatteryPercentage(float voltage) {
   }
 }
 
+// Evaluate WiFi signal strength and return quality rating
+String getSignalQuality(int rssi) {
+  if (rssi > -55) {
+    return "Excellent";
+  } else if (rssi > -70) {
+    return "Good";
+  } else if (rssi > -80) {
+    return "Okay";
+  } else if (rssi > -90) {
+    return "Poor";
+  } else {
+    return "Very Poor";
+  }
+}
+
+// Check WiFi signal strength
+void checkWiFiSignal() {
+  if (WiFi.status() == WL_CONNECTED) {
+    rssi = WiFi.RSSI();
+    signalQuality = getSignalQuality(rssi);
+    Serial.print("WiFi signal strength: ");
+    Serial.print(rssi);
+    Serial.print(" dBm (");
+    Serial.print(signalQuality);
+    Serial.println(")");
+  } else {
+    rssi = -100; // Set to minimum value if not connected
+    signalQuality = "Disconnected";
+  }
+}
+
 // Main loop
 void loop() {
   if (isConfigMode) {
@@ -148,7 +236,16 @@ void loop() {
   } else {
     // Normal operation mode
     checkButton();
+    
+    // Check battery status periodically
     checkBatteryStatus();
+    
+    // Check WiFi signal periodically
+    if (millis() - lastWifiCheck > WIFI_CHECK_INTERVAL) {
+      lastWifiCheck = millis();
+      checkWiFiSignal();
+    }
+    
     server.handleClient(); // Continue handling web requests
     
     // Add short delay to prevent watchdog reset
@@ -168,11 +265,14 @@ void checkBatteryStatus() {
     Serial.print(batteryPercentage);
     Serial.println("%)");
     
-    if (isLowBattery()) {
+    if (isLowBattery() && !lowBatteryAlertSent) {
       blinkLED(5, 50); // Fast blink to indicate low battery
-      // Optionally send low battery notification
+      // Send low battery notification once per boot
       if (WiFi.status() == WL_CONNECTED) {
-        sendLowBatteryAlert();
+        if (sendLowBatteryAlert()) {
+          lowBatteryAlertSent = true; // Set flag to prevent repeated alerts
+          Serial.println("Low battery alert sent. No more alerts will be sent until reboot.");
+        }
       }
     }
   }
@@ -191,7 +291,7 @@ float getBatteryVoltage() {
 
 // Check if battery is low
 bool isLowBattery() {
-  return batteryPercentage < 25; // Changed to use percentage instead of voltage
+  return batteryPercentage < 50;
 }
 
 // Start configuration mode with AP and captive portal
@@ -243,6 +343,15 @@ bool connectToWiFi() {
     Serial.println(wifi_ssid);
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
+    
+    // Get initial signal strength
+    rssi = WiFi.RSSI();
+    signalQuality = getSignalQuality(rssi);
+    Serial.print("WiFi signal strength: ");
+    Serial.print(rssi);
+    Serial.print(" dBm (");
+    Serial.print(signalQuality);
+    Serial.println(")");
     
     // Enable WiFi power saving for battery life
     WiFi.setSleep(true);
@@ -379,9 +488,12 @@ bool sendWebhook() {
   
   // Create message body with escaped newlines
   String msgBody = String("Device ID: ") + deviceId + "\\n" +
+                   "Hardware: " + hardwarePlatform + "\\n" +
                    "Location: " + location + "\\n" +
                    "IP Address: " + ipAddr + "\\n" +
                    "MAC Address: " + macAddr + "\\n" +
+                   "WiFi Signal: " + String(rssi) + " dBm (" + signalQuality + ")\\n" +
+                   "Battery: " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)\\n" +
                    "Time: " + timeStr + " seconds since boot";
   
   String titleText = "PANIC ALARM TRIGGERED";
@@ -402,9 +514,12 @@ bool sendWebhook() {
     // Slack webhook format
     jsonPayload = "{\"text\":\"⚠️ *" + titleText + "* ⚠️\",\"attachments\":[{\"color\":\"#FF0000\",\"fields\":[" +
                   "{\"title\":\"Device ID\",\"value\":\"" + deviceId + "\",\"short\":true}," +
+                  "{\"title\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\",\"short\":true}," +
                   "{\"title\":\"Location\",\"value\":\"" + location + "\",\"short\":true}," +
                   "{\"title\":\"IP Address\",\"value\":\"" + ipAddr + "\",\"short\":true}," +
                   "{\"title\":\"MAC Address\",\"value\":\"" + macAddr + "\",\"short\":true}," +
+                  "{\"title\":\"WiFi Signal\",\"value\":\"" + String(rssi) + " dBm (" + signalQuality + ")\",\"short\":true}," +
+                  "{\"title\":\"Battery\",\"value\":\"" + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)\",\"short\":true}," +
                   "{\"title\":\"Time\",\"value\":\"" + timeStr + " seconds since boot\",\"short\":false}" +
                   "]}]}";
   }
@@ -419,9 +534,12 @@ bool sendWebhook() {
     jsonPayload += "\"activityTitle\":\"⚠️ " + titleText + "\",";
     jsonPayload += "\"facts\":[";
     jsonPayload += "{\"name\":\"Device ID\",\"value\":\"" + deviceId + "\"},";
+    jsonPayload += "{\"name\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\"},";
     jsonPayload += "{\"name\":\"Location\",\"value\":\"" + location + "\"},";
     jsonPayload += "{\"name\":\"IP Address\",\"value\":\"" + ipAddr + "\"},";
     jsonPayload += "{\"name\":\"MAC Address\",\"value\":\"" + macAddr + "\"},";
+    jsonPayload += "{\"name\":\"WiFi Signal\",\"value\":\"" + String(rssi) + " dBm (" + signalQuality + ")\"},";
+    jsonPayload += "{\"name\":\"Battery\",\"value\":\"" + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)\"},";
     jsonPayload += "{\"name\":\"Time\",\"value\":\"" + timeStr + " seconds since boot\"}";
     jsonPayload += "],\"markdown\":true}]}";
   }
@@ -429,9 +547,14 @@ bool sendWebhook() {
     // Generic webhook format for other services
     jsonPayload = "{\"event\":\"" + titleText + "\",";
     jsonPayload += "\"device_id\":\"" + deviceId + "\",";
-    jsonPayload += "\"mac_address\":\"" + macAddr + "\",";
+    jsonPayload += "\"hardware\":\"" + hardwarePlatform + "\",";
     jsonPayload += "\"location\":\"" + location + "\",";
     jsonPayload += "\"ip_address\":\"" + ipAddr + "\",";
+    jsonPayload += "\"mac_address\":\"" + macAddr + "\",";
+    jsonPayload += "\"wifi_signal\":" + String(rssi) + ",";
+    jsonPayload += "\"signal_quality\":\"" + signalQuality + "\",";
+    jsonPayload += "\"battery_percentage\":" + String(batteryPercentage) + ",";
+    jsonPayload += "\"battery_voltage\":" + String(batteryVoltage) + ",";
     jsonPayload += "\"triggered_at\":" + timeStr + "}";
   }
   
@@ -487,11 +610,13 @@ bool sendEmailAlert() {
   String htmlMsg = "<div style='color:red;'><h1>PANIC ALARM TRIGGERED</h1>"
                    "<p>The panic button has been activated.</p>"
                    "<p><strong>Device ID:</strong> " + configSSID + "</p>"
+                   "<p><strong>Hardware:</strong> " + hardwarePlatform + "</p>"
                    + locationInfo +
                    "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
                    "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
+                   "<p><strong>WiFi Signal:</strong> " + String(rssi) + " dBm (" + signalQuality + ")</p>"
                    "<p><strong>" + webhookStatus + "</strong></p>"
-                   "<p><strong>Battery:</strong> " + String(batteryPercentage) + "%</p>"
+                   "<p><strong>Battery:</strong> " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</p>"
                    "<p><strong>Time:</strong> " + String(millis() / 1000) + " seconds since device boot</p>"
                    "</div>";
   message.html.content = htmlMsg.c_str();
@@ -540,7 +665,15 @@ bool sendLowBatteryWebhook() {
   }
   
   HTTPClient http;
-  http.begin(webhook_url);
+  
+  // Ensure URL has protocol
+  if (webhook_url.startsWith("http://") || webhook_url.startsWith("https://")) {
+    http.begin(webhook_url);
+  } else {
+    String correctedUrl = "https://" + webhook_url;
+    http.begin(correctedUrl);
+  }
+  
   http.addHeader("Content-Type", "application/json");
   
   // Construct JSON payload
@@ -551,9 +684,12 @@ bool sendLowBatteryWebhook() {
   String jsonPayload = "{"
                       "\"event\": \"LOW_BATTERY_WARNING\","
                       "\"device_id\": \"" + configSSID + "\","
-                      "\"mac_address\": \"" + WiFi.macAddress() + "\","
+                      "\"hardware\": \"" + hardwarePlatform + "\","
                       + locationInfo +
                       "\"ip_address\": \"" + WiFi.localIP().toString() + "\","
+                      "\"mac_address\": \"" + WiFi.macAddress() + "\","
+                      "\"wifi_signal\": " + String(rssi) + ","
+                      "\"signal_quality\": \"" + signalQuality + "\","
                       "\"battery_voltage\": " + String(batteryVoltage) + ","
                       "\"battery_percentage\": " + String(batteryPercentage) + ","
                       "\"reported_at\": " + String(millis() / 1000) +
@@ -601,11 +737,13 @@ bool sendLowBatteryEmail() {
   
   String htmlMsg = "<div style='color:orange;'><h1>LOW BATTERY WARNING</h1>"
                    "<p>Your panic alarm device is running low on battery.</p>"
-                   + locationInfo +
                    "<p><strong>Device ID:</strong> " + configSSID + "</p>"
-                   "<p><strong>Battery level:</strong> " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</p>"
+                   "<p><strong>Hardware:</strong> " + hardwarePlatform + "</p>"
+                   + locationInfo +
                    "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
                    "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
+                   "<p><strong>WiFi Signal:</strong> " + String(rssi) + " dBm (" + signalQuality + ")</p>"
+                   "<p><strong>Battery level:</strong> " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</p>"
                    + webhookStatus +
                    "<p>Please replace or recharge the battery soon.</p></div>";
   message.html.content = htmlMsg.c_str();
@@ -693,6 +831,7 @@ void loadConfig() {
   
   // Print loaded configuration
   Serial.println("Loaded configuration:");
+  Serial.println("Hardware platform: " + hardwarePlatform);
   Serial.println("WiFi SSID: " + wifi_ssid);
   Serial.println("Email server: " + email_server);
   Serial.println("Email port: " + String(email_port));
@@ -827,15 +966,21 @@ void handleRoot() {
                 "</head><body>"
                 "<div class='container'>"
                 "<div class='header-container'>"
+                "<div class='logo-title'>"
                 "<svg width='40' height='40' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg' class='logo'>"
                 "  <circle cx='100' cy='100' r='95' fill='#2f2f2f'/>"
                 "  <circle cx='100' cy='100' r='75' fill='#444'/>"
                 "  <circle cx='100' cy='100' r='55' fill='#d32f2f'/>"
                 "  <ellipse cx='85' cy='80' rx='20' ry='12' fill='white' opacity='0.3'/>"
                 "</svg>"
+                "<div>"
                 "<h1>Panic Alarm Setup</h1>"
+                "<p class='version'>Version " + firmwareVersion + "</p>"
+                "</div>"
+                "</div>"
                 "</div>"
                 "<p><strong>Device ID: </strong>" + configSSID + "</p>"
+                "<p><strong>Hardware: </strong>" + hardwarePlatform + "</p>"
                 "<form action='/setup' method='post' onsubmit='return validateForm()'>"
 
                 "<div class='section'>"
@@ -968,8 +1113,49 @@ void handleSetup() {
   ESP.restart();
 }
 
-// Web handlers
+// Web handlers for normal operation mode
 void handleNormalRoot() {
+  // Determine network signal icon based on signal quality
+  String wifiSvgPaths = "";
+  String wifiColor1 = "#e0e0e0"; // default light gray for weak/no signal
+  String wifiColor2 = "#e0e0e0";
+  String wifiColor3 = "#e0e0e0";
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    if (rssi > -55) { // Excellent
+      wifiColor1 = "#4CAF50"; // Green
+      wifiColor2 = "#4CAF50";
+      wifiColor3 = "#4CAF50";
+    } else if (rssi > -70) { // Good
+      wifiColor1 = "#e0e0e0";
+      wifiColor2 = "#4CAF50";
+      wifiColor3 = "#4CAF50";
+    } else if (rssi > -80) { // Okay
+      wifiColor1 = "#e0e0e0";
+      wifiColor2 = "#e0e0e0";
+      wifiColor3 = "#4CAF50";
+    } else { // Poor
+      wifiColor1 = "#e0e0e0";
+      wifiColor2 = "#e0e0e0";
+      wifiColor3 = "#FF9800"; // Orange
+    }
+  }
+  
+  // Create WiFi SVG
+  String wifiSvg = "<svg class=\"wifi-icon\" xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\">"
+                   "<path d=\"M1,9 L3,11 C7.97,6.03 16.03,6.03 21,11 L23,9 C16.93,2.93 7.08,2.93 1,9 Z\" fill=\"" + wifiColor1 + "\"/>"
+                   "<path d=\"M5,13 L7,15 C9.76,12.24 14.24,12.24 17,15 L19,13 C15.14,9.14 8.87,9.14 5,13 Z\" fill=\"" + wifiColor2 + "\"/>"
+                   "<path d=\"M9,17 L12,20 L15,17 C13.35,15.34 10.66,15.34 9,17 Z\" fill=\"" + wifiColor3 + "\"/>"
+                   "</svg>";
+  
+  // Determine battery color based on percentage
+  String batteryColor = "#4CAF50"; // Green for good battery
+  if (batteryPercentage < 25) {
+    batteryColor = "#f44336"; // Red for very low
+  } else if (batteryPercentage < 50) {
+    batteryColor = "#ff9800"; // Orange/yellow for low
+  }
+  
   String notificationStatus = "";
   if (email_enabled && webhook_enabled) {
     notificationStatus = "Email and Webhook notifications enabled";
@@ -981,20 +1167,6 @@ void handleNormalRoot() {
     notificationStatus = "No notifications enabled!";
   }
   
-  // Determine battery color based on percentage
-  String batteryColor = "#4CAF50"; // Green for good battery
-  if (batteryPercentage < 25) {
-    batteryColor = "#f44336"; // Red for very low
-  } else if (batteryPercentage < 50) {
-    batteryColor = "#ff9800"; // Orange/yellow for low
-  }
-  
-  // Create battery gauge HTML
-  String batteryGauge = "<div class='battery-container'>"
-                        "<div class='battery-level' style='width:" + String(batteryPercentage) + "%; background-color:" + batteryColor + ";'></div>"
-                        "<span class='battery-text'>" + String(batteryPercentage) + "%</span>"
-                        "</div>";
-  
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Panic Alarm Control</title>"
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
@@ -1002,24 +1174,40 @@ void handleNormalRoot() {
                 "</head><body>"
                 "<div class='container'>"
                 "<div class='header-container'>"
+                "<div class='logo-title'>"
                 "<svg width='40' height='40' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg' class='logo'>"
                 "  <circle cx='100' cy='100' r='95' fill='#2f2f2f'/>"
                 "  <circle cx='100' cy='100' r='75' fill='#444'/>"
                 "  <circle cx='100' cy='100' r='55' fill='#d32f2f'/>"
                 "  <ellipse cx='85' cy='80' rx='20' ry='12' fill='white' opacity='0.3'/>"
                 "</svg>"
+                "<div>"
                 "<h1>Panic Alarm Control</h1>"
+                "<p class='version'>Version " + firmwareVersion + "</p>"
+                "</div>"
+                "</div>"
+                "<div class='status-indicators'>"
+                "<div class='tooltip'>"
+                + wifiSvg +
+                "<span class=\"tooltip-text\">Signal: " + signalQuality + " (" + String(rssi) + " dBm)</span>"
+                "</div>"
+                "<div class='tooltip'>"
+                "<div class='battery-icon'>"
+                "<div class='battery-level' style='width:" + String(batteryPercentage) + "%; background-color:" + batteryColor + ";'></div>"
+                "</div>"
+                "<span class=\"tooltip-text\">Battery: " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</span>"
+                "</div>"
+                "</div>"
                 "</div>"
                 "<p>Device is operational and monitoring for panic button presses.</p>"
                 "<div class='status'>"
                 "<p><strong>Device ID:</strong> " + configSSID + "</p>"
+                "<p><strong>Hardware:</strong> " + hardwarePlatform + "</p>"
                 "<p><strong>Location:</strong> " + (device_location.length() > 0 ? device_location : "Not specified") + "</p>"
                 "<p><strong>WiFi SSID:</strong> " + wifi_ssid + "</p>"
                 "<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>"
                 "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                 "<p><strong>Notification:</strong> " + notificationStatus + "</p>"
-                "<p><strong>Battery Status:</strong></p>" + batteryGauge +
-                "<p class='small-note'>Battery Voltage: " + String(batteryVoltage) + "V</p>"
                 "</div>"
                 "<div class='buttons'>"
                 "<a href='/config' class='button'>Update Configuration</a>";
@@ -1072,15 +1260,21 @@ void handleConfigPage() {
                 "</head><body>"
                 "<div class='container'>"
                 "<div class='header-container'>"
+                "<div class='logo-title'>"
                 "<svg width='40' height='40' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg' class='logo'>"
                 "  <circle cx='100' cy='100' r='95' fill='#2f2f2f'/>"
                 "  <circle cx='100' cy='100' r='75' fill='#444'/>"
                 "  <circle cx='100' cy='100' r='55' fill='#d32f2f'/>"
                 "  <ellipse cx='85' cy='80' rx='20' ry='12' fill='white' opacity='0.3'/>"
                 "</svg>"
+                "<div>"
                 "<h1>Update Configuration</h1>"
+                "<p class='version'>Version " + firmwareVersion + "</p>"
+                "</div>"
+                "</div>"
                 "</div>"
                 "<p><strong>Device ID: </strong>" + configSSID + "</p>"
+                "<p><strong>Hardware: </strong>" + hardwarePlatform + "</p>"
                 "<form action='/update' method='post' onsubmit='return validateForm()'>"
 
                 "<div class='section'>"
@@ -1274,13 +1468,18 @@ void handleReset() {
                 "</head><body>"
                 "<div class='container'>"
                 "<div class='header-container'>"
+                "<div class='logo-title'>"
                 "<svg width='40' height='40' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg' class='logo'>"
                 "  <circle cx='100' cy='100' r='95' fill='#2f2f2f'/>"
                 "  <circle cx='100' cy='100' r='75' fill='#444'/>"
                 "  <circle cx='100' cy='100' r='55' fill='#d32f2f'/>"
                 "  <ellipse cx='85' cy='80' rx='20' ry='12' fill='white' opacity='0.3'/>"
                 "</svg>"
+                "<div>"
                 "<h1>Factory Reset</h1>"
+                "<p class='version'>Version " + firmwareVersion + "</p>"
+                "</div>"
+                "</div>"
                 "</div>"
                 "<p>Are you sure you want to reset all settings?</p>"
                 "<p>This will erase all configuration and restart the device in setup mode.</p>"
@@ -1331,32 +1530,141 @@ void handleCss() {
                "  max-width: 600px;"
                "  margin: 0 auto;"
                "  padding: 20px;"
+               "  box-sizing: border-box;"
                "}"
                "h1, h2, h3 {"
                "  color: #333;"
+               "  margin: 0 0 5px 0;"
                "}"
-               ".section {"
+               "/* Section elements */"
+               ".section, .toggle-section, .status {"
                "  background-color: #fff;"
                "  border-radius: 5px;"
                "  padding: 15px;"
                "  margin-bottom: 20px;"
                "  box-shadow: 0 2px 5px rgba(0,0,0,0.1);"
+               "  width: 100%;"
+               "  box-sizing: border-box;"
                "}"
+               "/* Header layout */"
                ".header-container {"
                "  display: flex;"
-               "  align-items: center;"
+               "  flex-wrap: wrap;"
+               "  align-items: flex-start;"
                "  margin-bottom: 20px;"
+               "}"
+               ".logo-title {"
+               "  display: flex;"
+               "  align-items: center;"
+               "  flex: 1;"
+               "  min-width: 250px;"
+               "  margin-bottom: 10px;"
                "}"
                ".logo {"
                "  margin-right: 15px;"
+               "  display: flex;"
+               "  align-items: center;"
                "}"
-               ".toggle-section {"
-               "  background-color: #fff;"
-               "  border-radius: 5px;"
-               "  padding: 15px;"
-               "  margin-bottom: 15px;"
-               "  box-shadow: 0 2px 5px rgba(0,0,0,0.1);"
+               ".version {"
+               "  color: #666;"
+               "  font-size: 14px;"
+               "  margin-top: 5px;"
                "}"
+               ".status-indicators {"
+               "  display: flex;"
+               "  align-items: center;"
+               "  gap: 15px;"
+               "  margin-top: 10px;"
+               "  margin-left: auto;"
+               "}"
+               "/* Status indicators */"
+               ".wifi-icon {"
+               "  display: inline-flex;"
+               "  align-items: center;"
+               "}"
+               ".battery-icon {"
+               "  position: relative;"
+               "  width: 22px;"
+               "  height: 12px;"
+               "  border: 2px solid #4CAF50;"
+               "  border-radius: 2px;"
+               "  padding: 1px;"
+               "  box-sizing: content-box;"
+               "  display: inline-block;"
+               "  vertical-align: middle;"
+               "}"
+               ".battery-icon:after {"
+               "  content: \"\";"
+               "  position: absolute;"
+               "  right: -4px;"
+               "  top: 50%;"
+               "  transform: translateY(-50%);"
+               "  width: 2px;"
+               "  height: 6px;"
+               "  background-color: #4CAF50;"
+               "  border-radius: 0 2px 2px 0;"
+               "}"
+               ".battery-level {"
+               "  height: 100%;"
+               "  border-radius: 1px;"
+               "  transition: width 0.5s ease-in-out;"
+               "}"
+               "/* Tooltips */"
+               ".tooltip {"
+               "  position: relative;"
+               "  display: inline-block;"
+               "}"
+               ".tooltip .tooltip-text {"
+               "  visibility: hidden;"
+               "  background-color: rgba(0, 0, 0, 0.7);"
+               "  color: #fff;"
+               "  text-align: center;"
+               "  padding: 5px 10px;"
+               "  border-radius: 4px;"
+               "  white-space: nowrap;"
+               "  position: absolute;"
+               "  z-index: 1;"
+               "  bottom: 125%;"
+               "  left: 50%;"
+               "  transform: translateX(-50%);"
+               "  opacity: 0;"
+               "  transition: opacity 0.3s;"
+               "  pointer-events: none;"
+               "}"
+               ".tooltip:hover .tooltip-text {"
+               "  visibility: visible;"
+               "  opacity: 1;"
+               "}"
+               "/* Buttons */"
+               ".buttons {"
+               "  margin-top: 20px;"
+               "}"
+               ".button, input[type='submit'] {"
+               "  background-color: #4CAF50;"
+               "  color: white;"
+               "  padding: 10px 15px;"
+               "  border: none;"
+               "  border-radius: 4px;"
+               "  cursor: pointer;"
+               "  font-size: 16px;"
+               "  margin-top: 10px;"
+               "  display: block;"
+               "  width: 100%;"
+               "  text-align: center;"
+               "  text-decoration: none;"
+               "  box-sizing: border-box;"
+               "}"
+               ".test {"
+               "  background-color: #2196F3;"
+               "}"
+               ".reset {"
+               "  background-color: #f44336;"
+               "}"
+               "input[type='submit']:disabled {"
+               "  background-color: #cccccc;"
+               "  cursor: not-allowed;"
+               "}"
+               "/* Form elements */"
                "label {"
                "  display: block;"
                "  margin-top: 10px;"
@@ -1369,41 +1677,6 @@ void handleCss() {
                "  border: 1px solid #ddd;"
                "  border-radius: 4px;"
                "  box-sizing: border-box;"
-               "}"
-               "input[type='submit'], .button {"
-               "  background-color: #4CAF50;"
-               "  color: white;"
-               "  padding: 10px 15px;"
-               "  border: none;"
-               "  border-radius: 4px;"
-               "  cursor: pointer;"
-               "  font-size: 16px;"
-               "  margin-top: 10px;"
-               "  display: inline-block;"
-               "  text-decoration: none;"
-               "}"
-               "input[type='submit']:disabled {"
-               "  background-color: #cccccc;"
-               "  cursor: not-allowed;"
-               "}"
-               ".button {"
-               "  margin-right: 10px;"
-               "}"
-               ".test {"
-               "  background-color: #2196F3;"
-               "}"
-               ".reset {"
-               "  background-color: #f44336;"
-               "}"
-               ".buttons {"
-               "  margin-top: 20px;"
-               "}"
-               ".status {"
-               "  background-color: #fff;"
-               "  border-radius: 5px;"
-               "  padding: 15px;"
-               "  margin-bottom: 20px;"
-               "  box-shadow: 0 2px 5px rgba(0,0,0,0.1);"
                "}"
                ".back {"
                "  margin-top: 20px;"
@@ -1430,12 +1703,14 @@ void handleCss() {
                "  color: #f44336;"
                "  font-weight: bold;"
                "}"
+               "/* Toggle switches */"
                ".switch {"
                "  position: relative;"
                "  display: inline-block;"
                "  width: 50px;"
                "  height: 24px;"
                "  margin-right: 10px;"
+               "  vertical-align: middle;"
                "}"
                ".switch input {"
                "  opacity: 0;"
@@ -1473,48 +1748,29 @@ void handleCss() {
                ".toggle-container {"
                "  display: flex;"
                "  align-items: center;"
-               "  margin-bottom: 10px;"
+               "  margin-bottom: 15px;"
+               "  padding: 5px 0;"
                "}"
                ".toggle-label {"
                "  font-weight: bold;"
-               "}"
-               /* Battery gauge styles */
-               ".battery-container {"
-               "  width: 100%;"
-               "  height: 25px;"
-               "  background-color: #e0e0e0;"
-               "  border-radius: 4px;"
-               "  position: relative;"
-               "  margin: 10px 0;"
-               "  overflow: hidden;"
-               "}"
-               ".battery-level {"
-               "  height: 100%;"
-               "  border-radius: 4px;"
-               "  transition: width 0.5s ease-in-out;"
-               "}"
-               ".battery-text {"
-               "  position: absolute;"
-               "  top: 50%;"
-               "  left: 50%;"
-               "  transform: translate(-50%, -50%);"
-               "  color: #000;"
-               "  font-weight: bold;"
-               "  text-shadow: 0 0 3px #fff;"
+               "  margin-left: 5px;"
                "}"
                ".small-note {"
                "  font-size: 0.85em;"
                "  color: #777;"
                "  margin-top: 5px;"
                "}"
+               "/* Responsive adjustments */"
                "@media (max-width: 480px) {"
                "  .container {"
                "    padding: 10px;"
                "  }"
-               "  .button {"
-               "    display: block;"
-               "    margin-bottom: 10px;"
-               "    text-align: center;"
+               "  .header-container {"
+               "    flex-direction: column;"
+               "  }"
+               "  .status-indicators {"
+               "    margin-left: 0;"
+               "    margin-top: 15px;"
                "  }"
                "}";
                
