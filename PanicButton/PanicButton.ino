@@ -1569,6 +1569,7 @@ void handleCss() {
                "  color: #666;"
                "  font-size: 14px;"
                "  margin-top: 5px;"
+               "  margin-bottom: 0;"
                "}"
                ".status-indicators {"
                "  display: flex;"
