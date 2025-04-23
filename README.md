@@ -89,7 +89,9 @@ Access the reset page via the web UI to:
 
 ## 🖼️ UI Preview
 
-![Configuration Page](docs/images/screenshot/status-page.png)
+![Status Page](docs/images/screenshot/status-page.png)
+
+![Configuration Page](docs/images/screenshot/config-page.png)
 
 ## 📄 License
 
