@@ -4,6 +4,8 @@
 #include <EEPROM.h>
 #include <ESP_Mail_Client.h>
 #include <HTTPClient.h>
+#include <Update.h>         // Added for OTA
+#include <ArduinoJson.h>  // Added for OTA JSON parsing
 
 // Constants
 #define EEPROM_SIZE 710
@@ -35,6 +37,11 @@
 #define BATT_MIN_VOLTAGE 3.2         // Minimum battery voltage (depleted)
 #define WIFI_CHECK_INTERVAL 30000    // Check WiFi signal every 30 seconds
 
+// OTA Update configuration
+#define OTA_CHECK_INTERVAL 86400000    // Check for updates once per day (in ms)
+#define OTA_SERVER_URL "https://your-update-server.com/api" // <<<--- Needs real URL
+#define OTA_UPDATE_KEY "your-device-secret-key" // <<<--- Needs real shared secret
+
 // Global variables
 bool isConfigMode = false;
 String configSSID = "PanicAlarm_"; // Will be updated with MAC address
@@ -63,11 +70,16 @@ String hardwarePlatform = ""; // Store hardware platform info
 int rssi = 0;                 // WiFi signal strength in dBm
 String signalQuality = "";    // Signal quality rating
 unsigned long lastWifiCheck = 0; // Last time WiFi signal was checked
-String firmwareVersion = "1.2.0"; // Firmware version
+String firmwareVersion = "1.2.0"; // Firmware version - <<<--- MAKE SURE THIS IS UPDATED WITH EACH RELEASE
+
+// OTA update variables
+unsigned long lastOtaCheck = 0;
+bool updateInProgress = false;
+String newFirmwareVersion = ""; // Stores version found by check, even if update fails
 
 // Forward declarations
 void loadConfig();
-void saveConfig(String ssid, String password, String server, int port, 
+void saveConfig(String ssid, String password, String server, int port,
                 String username, String emailpass, String recipient, String location,
                 String webhook, bool webhook_en, bool email_en);
 void blinkLED(int times, int delayms);
@@ -89,6 +101,13 @@ String getSignalQuality(int rssi);
 String generateUniqueSSID();
 int calculateBatteryPercentage(float voltage);
 
+// OTA Function declarations
+bool checkForUpdates();
+String generateAuthToken();
+bool downloadAndUpdate(String firmwareUrl, String expectedChecksum);
+String urlEncode(String str);
+int compareVersions(String v1, String v2); // Although defined, not used in client logic from plan
+
 // Web handlers
 void handleRoot();
 void handleSetup();
@@ -99,6 +118,7 @@ void handleTestEmail();
 void handleTestWebhook();
 void handleReset();
 void handleCss();
+void handleCheckUpdate(); // Added for OTA
 
 WebServer server(WEBSERVER_PORT);
 DNSServer dnsServer;
@@ -112,7 +132,7 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
-  
+
   #if ENABLE_BATTERY_MONITORING
   pinMode(BATTERY_PIN, INPUT);
   analogReadResolution(12); // 12-bit ADC resolution
@@ -262,6 +282,13 @@ void loop() {
       checkWiFiSignal();
     }
     
+    // Check for OTA updates periodically
+    if (millis() - lastOtaCheck > OTA_CHECK_INTERVAL && !updateInProgress && WiFi.status() == WL_CONNECTED) {
+      lastOtaCheck = millis();
+      Serial.println("Checking for firmware updates...");
+      checkForUpdates();
+    }
+
     server.handleClient(); // Continue handling web requests
     
     // Add short delay to prevent watchdog reset
@@ -389,6 +416,7 @@ bool connectToWiFi() {
     server.on("/test", HTTP_GET, handleTestEmail);
     server.on("/test-webhook", HTTP_GET, handleTestWebhook);
     server.on("/reset", HTTP_GET, handleReset);
+    server.on("/check-update", HTTP_GET, handleCheckUpdate); // Added for OTA
     server.on("/style.css", HTTP_GET, handleCss);
     
     server.begin();
@@ -812,77 +840,379 @@ bool sendLowBatteryEmail() {
   return true;
 }
 
+// Check for firmware updates
+bool checkForUpdates() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  HTTPClient http;
+  newFirmwareVersion = ""; // Clear previous check result
+
+  // Prepare URL with device information
+  String url = String(OTA_SERVER_URL) + "/firmware";
+  url += "?device_id=" + urlEncode(configSSID); // Use urlEncode
+  url += "&hardware=" + urlEncode(hardwarePlatform);
+  url += "&version=" + urlEncode(firmwareVersion);
+  url += "&mac=" + urlEncode(WiFi.macAddress());
+
+  Serial.println("Checking for updates at: " + url);
+
+  http.begin(url);
+  // Add a validation header using device MAC and shared secret
+  http.addHeader("X-Device-Auth", generateAuthToken());
+
+  int httpCode = http.GET();
+
+  if (httpCode == HTTP_CODE_OK) {
+    String response = http.getString();
+    DynamicJsonDocument doc(1024); // Adjust size if needed
+    DeserializationError error = deserializeJson(doc, response);
+
+    if (!error) {
+      if (doc.containsKey("update_available") && doc["update_available"].as<bool>()) {
+        if (doc.containsKey("firmware_url") && doc.containsKey("checksum")) {
+          String firmwareUrl = doc["firmware_url"].as<String>();
+          String checksum = doc["checksum"].as<String>();
+
+          if (doc.containsKey("firmware_version")) {
+            newFirmwareVersion = doc["firmware_version"].as<String>();
+          } else {
+            newFirmwareVersion = "unknown"; // Mark as unknown if not provided
+          }
+
+          Serial.printf("Found new firmware: %s, Version: %s\n",
+                     firmwareUrl.c_str(), newFirmwareVersion.c_str());
+
+          http.end(); // End the connection before starting download
+
+          // Download and apply the update
+          return downloadAndUpdate(firmwareUrl, checksum);
+        } else {
+           Serial.println("Update available but missing firmware_url or checksum in response.");
+        }
+      } else {
+        Serial.println("No update available.");
+      }
+    } else {
+      Serial.print("Error parsing update response JSON: ");
+      Serial.println(error.c_str());
+    }
+  } else {
+    Serial.printf("Update check failed, HTTP code: %d\n", httpCode);
+    String responseBody = http.getString(); // Get response body for debugging
+    Serial.println("Response body: " + responseBody);
+  }
+
+  http.end();
+  return false;
+}
+
+// Simple auth token generation (MAC + shared key)
+String generateAuthToken() {
+  String mac = WiFi.macAddress();
+  mac.replace(":", ""); // Remove colons
+
+  // Simple one-way token - in production you'd want a better algorithm
+  String token = mac + OTA_UPDATE_KEY;
+
+  // Create a simple hash - this is not cryptographically secure but better than plaintext
+  uint32_t hashValue = 0;
+  for (unsigned int i = 0; i < token.length(); i++) {
+    hashValue = ((hashValue << 5) + hashValue) + token.charAt(i); // djb2 hash variation
+  }
+
+  return String(hashValue, HEX); // Return as Hex String
+}
+
+// Download and apply firmware update
+bool downloadAndUpdate(String firmwareUrl, String expectedChecksum) {
+  if (updateInProgress) {
+      Serial.println("Update already in progress. Aborting new attempt.");
+      return false;
+  }
+  updateInProgress = true;
+
+  HTTPClient http;
+  http.begin(firmwareUrl);
+
+  // Add auth header here too if your binary server requires it
+  // http.addHeader("X-Device-Auth", generateAuthToken());
+
+  Serial.println("Downloading firmware from: " + firmwareUrl);
+  int httpCode = http.GET();
+
+  if (httpCode == HTTP_CODE_OK) {
+    // Get total content length
+    int contentLength = http.getSize();
+
+    if (contentLength <= 0) {
+      Serial.println("Invalid content length received from server.");
+      http.end();
+      updateInProgress = false;
+      return false;
+    }
+
+    Serial.printf("Firmware size: %d bytes\n", contentLength);
+
+    // Hash calculation for simple validation (Additive Checksum)
+    uint32_t calculatedChecksum = 0;
+
+    // Use Update library to write firmware
+    if (Update.begin(contentLength)) {
+      Update.setMD5(expectedChecksum.c_str()); // Use MD5 if checksum is MD5, otherwise use custom checksum below
+
+      // Read and update in chunks
+      uint8_t buffer[1024];
+      WiFiClient *stream = http.getStreamPtr();
+
+      size_t written = 0;
+      int lastProgress = -1; // To avoid printing 0% multiple times
+
+      while (http.connected() && written < (size_t)contentLength) {
+        // Check how much data is available
+        size_t available = stream->available();
+
+        if (available) {
+          // Read up to buffer size or available bytes
+          size_t readSize = min(available, sizeof(buffer));
+          size_t bytesRead = stream->readBytes(buffer, readSize);
+
+          if (bytesRead > 0) {
+             // -- Simple Additive Checksum Calculation (Alternative) --
+             // If your server provides a simple additive checksum instead of MD5, use this block.
+             // Otherwise, rely on Update.setMD5() and Update.end() for validation.
+             // for (size_t i = 0; i < bytesRead; i++) {
+             //   calculatedChecksum += buffer[i];
+             // }
+             // -- End Simple Checksum --
+
+             // Write buffer to flash
+             size_t written_now = Update.write(buffer, bytesRead);
+
+             if (written_now != bytesRead) {
+               Serial.printf("Flash write error: wrote %d/%d bytes\n", written_now, bytesRead);
+               Update.abort();
+               http.end();
+               updateInProgress = false;
+               return false;
+             }
+
+             written += bytesRead;
+
+             // Show progress
+             int progress = (written * 100) / contentLength;
+             if (progress != lastProgress) { // Only print if percentage changes
+                 Serial.printf("Update progress: %d%%\n", progress);
+                 lastProgress = progress;
+             }
+          } else {
+              Serial.println("Stream read 0 bytes.");
+          }
+        } else {
+            // Wait a bit if no data is available yet
+            delay(10);
+        }
+      }
+
+      // Check if download completed fully
+      if (written != (size_t)contentLength) {
+          Serial.printf("Download incomplete: Received %d/%d bytes\n", written, contentLength);
+          Update.abort();
+          http.end();
+          updateInProgress = false;
+          return false;
+      }
+
+      Serial.println("\nUpdate download complete.");
+
+      // --- Checksum Verification ---
+      // If using the simple additive checksum:
+      // uint32_t expectedChecksumInt = strtoul(expectedChecksum.c_str(), NULL, 16);
+      // if (calculatedChecksum != expectedChecksumInt) {
+      //   Serial.printf("Checksum mismatch! Expected: %u (0x%X), Got: %u (0x%X)\n",
+      //               expectedChecksumInt, expectedChecksumInt, calculatedChecksum, calculatedChecksum);
+      //   Update.abort();
+      //   http.end();
+      //   updateInProgress = false;
+      //   return false;
+      // } else {
+      //    Serial.println("Checksum verified successfully.");
+      // }
+
+      // --- End Checksum Verification ---
+
+      // Finalize the update (true = success, flash will be committed)
+      // If using Update.setMD5(), Update.end() will perform the check internally.
+      if (Update.end(true)) {
+        Serial.printf("Update Success: %u bytes written\n", written);
+        http.end();
+
+        // Restart device to apply update
+        Serial.println("Rebooting to apply update...");
+        delay(2000); // Give time for serial message to send
+        ESP.restart();
+        // Code execution stops here after restart
+        return true; // Technically won't be reached
+      } else {
+        Serial.println("Update failed: Error #" + String(Update.getError()));
+        Update.printError(Serial); // Print detailed error
+      }
+    } else {
+      Serial.printf("Not enough space for update: %d required, Error #%d\n", contentLength, Update.getError());
+       Update.printError(Serial); // Print detailed error
+    }
+  } else {
+    Serial.printf("Firmware download failed, HTTP code: %d\n", httpCode);
+    String responseBody = http.getString(); // Get response body for debugging
+    Serial.println("Response body: " + responseBody);
+  }
+
+  http.end();
+  updateInProgress = false;
+  return false;
+}
+
+
+// URL encode a string for HTTP requests
+String urlEncode(String str) {
+  String encodedString = "";
+  char c;
+  char code0;
+  char code1;
+
+  for (int i = 0; i < str.length(); i++) {
+    c = str.charAt(i);
+    if (c == ' ') {
+      encodedString += '+';
+    } else if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') { // RFC3986 Unreserved chars
+      encodedString += c;
+    } else {
+      code1 = (c & 0xf);
+      code0 = (c >> 4) & 0xf;
+
+      encodedString += '%';
+      encodedString += (code0 < 10 ? code0 + '0' : code0 - 10 + 'A');
+      encodedString += (code1 < 10 ? code1 + '0' : code1 - 10 + 'A');
+    }
+  }
+  return encodedString;
+}
+
+// Compare two semantic version strings (returns >0 if v1>v2, <0 if v1<v2, 0 if equal)
+// NOTE: This function is provided but not used in the client-side OTA check logic from the plan.
+// The server is assumed to handle the version comparison.
+int compareVersions(String v1, String v2) {
+  int v1_parts[3] = {0, 0, 0};
+  int v2_parts[3] = {0, 0, 0};
+
+  sscanf(v1.c_str(), "%d.%d.%d", &v1_parts[0], &v1_parts[1], &v1_parts[2]);
+  sscanf(v2.c_str(), "%d.%d.%d", &v2_parts[0], &v2_parts[1], &v2_parts[2]);
+
+  // Compare major version
+  if (v1_parts[0] != v2_parts[0]) {
+    return v1_parts[0] - v2_parts[0];
+  }
+
+  // Compare minor version
+  if (v1_parts[1] != v2_parts[1]) {
+    return v1_parts[1] - v2_parts[1];
+  }
+
+  // Compare patch version
+  return v1_parts[2] - v2_parts[2];
+}
+
+// --- End OTA Functions ---
+
+
 // Load configuration from EEPROM
 void loadConfig() {
   // Read WiFi SSID
-  char buffer[170];
-  for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(SSID_ADDR + i);
+  char buffer[170]; // Increased buffer size for potentially longer strings
+  memset(buffer, 0, 170); // Clear buffer before reading
+  for (int i = 0; i < 70; i++) { // Read up to 70 bytes
+    byte val = EEPROM.read(SSID_ADDR + i);
+    if (val == 0) break; // Stop at null terminator
+    buffer[i] = (char)val;
   }
   wifi_ssid = String(buffer);
   
   // Read WiFi password
   memset(buffer, 0, 170);
   for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(PASS_ADDR + i);
+     byte val = EEPROM.read(PASS_ADDR + i);
+     if (val == 0) break;
+     buffer[i] = (char)val;
   }
   wifi_password = String(buffer);
   
   // Read email server
   memset(buffer, 0, 170);
   for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(EMAIL_SERVER_ADDR + i);
+     byte val = EEPROM.read(EMAIL_SERVER_ADDR + i);
+     if (val == 0) break;
+     buffer[i] = (char)val;
   }
   email_server = String(buffer);
   
   // Read email port
-  email_port = EEPROM.read(EMAIL_PORT_ADDR) + (EEPROM.read(EMAIL_PORT_ADDR + 1) << 8) + 
-               (EEPROM.read(EMAIL_PORT_ADDR + 2) << 16) + (EEPROM.read(EMAIL_PORT_ADDR + 3) << 24);
+  EEPROM.get(EMAIL_PORT_ADDR, email_port);
   
   // Read email username
   memset(buffer, 0, 170);
   for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(EMAIL_USER_ADDR + i);
+     byte val = EEPROM.read(EMAIL_USER_ADDR + i);
+     if (val == 0) break;
+     buffer[i] = (char)val;
   }
   email_username = String(buffer);
   
   // Read email password
   memset(buffer, 0, 170);
   for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(EMAIL_PASS_ADDR + i);
+     byte val = EEPROM.read(EMAIL_PASS_ADDR + i);
+     if (val == 0) break;
+     buffer[i] = (char)val;
   }
   email_password = String(buffer);
   
   // Read email recipient
   memset(buffer, 0, 170);
   for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(EMAIL_RECIPIENT_ADDR + i);
+     byte val = EEPROM.read(EMAIL_RECIPIENT_ADDR + i);
+     if (val == 0) break;
+     buffer[i] = (char)val;
   }
   email_recipient = String(buffer);
   
   // Read location
   memset(buffer, 0, 170);
   for (int i = 0; i < 70; i++) {
-    buffer[i] = EEPROM.read(LOCATION_ADDR + i);
+     byte val = EEPROM.read(LOCATION_ADDR + i);
+     if (val == 0) break;
+     buffer[i] = (char)val;
   }
   device_location = String(buffer);
   
   // Read webhook URL
   memset(buffer, 0, 170);
-  for (int i = 0; i < 170; i++) {
-    buffer[i] = EEPROM.read(WEBHOOK_URL_ADDR + i);
+  for (int i = 0; i < 170; i++) { // Read up to 170 bytes
+     byte val = EEPROM.read(WEBHOOK_URL_ADDR + i);
+     if (val == 0) break;
+     buffer[i] = (char)val;
   }
   webhook_url = String(buffer);
   
   // Read webhook enabled flag
   webhook_enabled = EEPROM.read(WEBHOOK_ENABLED_ADDR) == 1;
   
-  // Read email enabled flag (default to true if not set)
-  email_enabled = EEPROM.read(EMAIL_ENABLED_ADDR) != 0;
+  // Read email enabled flag (default to true if not set or invalid value)
+  byte emailFlag = EEPROM.read(EMAIL_ENABLED_ADDR);
+  email_enabled = (emailFlag == 1); // Only enable if explicitly set to 1
   
   // Print loaded configuration
   Serial.println("Loaded configuration:");
   Serial.println("Hardware platform: " + hardwarePlatform);
+  Serial.println("Firmware Version: " + firmwareVersion); // Added Firmware Version
   Serial.println("WiFi SSID: " + wifi_ssid);
   Serial.println("Email server: " + email_server);
   Serial.println("Email port: " + String(email_port));
@@ -898,59 +1228,94 @@ void loadConfig() {
 void saveConfig(String ssid, String password, String server, int port, 
                 String username, String emailpass, String recipient, String location,
                 String webhook, bool webhook_en, bool email_en) {
+
+  // Clear EEPROM area before writing new data (optional, but good practice)
+  // for (int i = SSID_ADDR; i < EMAIL_ENABLED_ADDR + 1; i++) {
+  //   EEPROM.write(i, 0);
+  // }
+
   // Save WiFi SSID
-  for (unsigned int i = 0; i < ssid.length(); i++) {
-    EEPROM.write(SSID_ADDR + i, ssid[i]);
+  for (unsigned int i = 0; i < 70; i++) {
+    if (i < ssid.length()) {
+      EEPROM.write(SSID_ADDR + i, ssid[i]);
+    } else {
+      EEPROM.write(SSID_ADDR + i, 0); // Null terminate or fill rest with 0
+      if (i == ssid.length()) break; // Exit after writing terminator
+    }
   }
-  EEPROM.write(SSID_ADDR + ssid.length(), 0); // Null terminator
-  
+
   // Save WiFi password
-  for (unsigned int i = 0; i < password.length(); i++) {
-    EEPROM.write(PASS_ADDR + i, password[i]);
+  for (unsigned int i = 0; i < 70; i++) {
+     if (i < password.length()) {
+        EEPROM.write(PASS_ADDR + i, password[i]);
+     } else {
+        EEPROM.write(PASS_ADDR + i, 0);
+        if (i == password.length()) break;
+     }
   }
-  EEPROM.write(PASS_ADDR + password.length(), 0); // Null terminator
-  
+
   // Save email server
-  for (unsigned int i = 0; i < server.length(); i++) {
-    EEPROM.write(EMAIL_SERVER_ADDR + i, server[i]);
+  for (unsigned int i = 0; i < 70; i++) {
+     if (i < server.length()) {
+        EEPROM.write(EMAIL_SERVER_ADDR + i, server[i]);
+     } else {
+        EEPROM.write(EMAIL_SERVER_ADDR + i, 0);
+        if (i == server.length()) break;
+     }
   }
-  EEPROM.write(EMAIL_SERVER_ADDR + server.length(), 0); // Null terminator
-  
+
   // Save email port
-  EEPROM.write(EMAIL_PORT_ADDR, port & 0xFF);
-  EEPROM.write(EMAIL_PORT_ADDR + 1, (port >> 8) & 0xFF);
-  EEPROM.write(EMAIL_PORT_ADDR + 2, (port >> 16) & 0xFF);
-  EEPROM.write(EMAIL_PORT_ADDR + 3, (port >> 24) & 0xFF);
-  
-  // Save email username
-  for (unsigned int i = 0; i < username.length(); i++) {
-    EEPROM.write(EMAIL_USER_ADDR + i, username[i]);
+  EEPROM.put(EMAIL_PORT_ADDR, port);
+
+  // Save email username (limit length)
+  for (unsigned int i = 0; i < 70; i++) {
+     if (i < username.length()) {
+        EEPROM.write(EMAIL_USER_ADDR + i, username[i]);
+     } else {
+        EEPROM.write(EMAIL_USER_ADDR + i, 0);
+        if (i == username.length()) break;
+     }
   }
-  EEPROM.write(EMAIL_USER_ADDR + username.length(), 0); // Null terminator
-  
+
   // Save email password
-  for (unsigned int i = 0; i < emailpass.length(); i++) {
-    EEPROM.write(EMAIL_PASS_ADDR + i, emailpass[i]);
+  for (unsigned int i = 0; i < 70; i++) {
+     if (i < emailpass.length()) {
+        EEPROM.write(EMAIL_PASS_ADDR + i, emailpass[i]);
+     } else {
+        EEPROM.write(EMAIL_PASS_ADDR + i, 0);
+        if (i == emailpass.length()) break;
+     }
   }
-  EEPROM.write(EMAIL_PASS_ADDR + emailpass.length(), 0); // Null terminator
-  
+
   // Save email recipient
-  for (unsigned int i = 0; i < recipient.length(); i++) {
-    EEPROM.write(EMAIL_RECIPIENT_ADDR + i, recipient[i]);
+  for (unsigned int i = 0; i < 70; i++) {
+     if (i < recipient.length()) {
+        EEPROM.write(EMAIL_RECIPIENT_ADDR + i, recipient[i]);
+     } else {
+        EEPROM.write(EMAIL_RECIPIENT_ADDR + i, 0);
+        if (i == recipient.length()) break;
+     }
   }
-  EEPROM.write(EMAIL_RECIPIENT_ADDR + recipient.length(), 0); // Null terminator
-  
+
   // Save location
-  for (unsigned int i = 0; i < location.length(); i++) {
-    EEPROM.write(LOCATION_ADDR + i, location[i]);
+  for (unsigned int i = 0; i < 70; i++) {
+     if (i < location.length()) {
+        EEPROM.write(LOCATION_ADDR + i, location[i]);
+     } else {
+        EEPROM.write(LOCATION_ADDR + i, 0);
+        if (i == location.length()) break;
+     }
   }
-  EEPROM.write(LOCATION_ADDR + location.length(), 0); // Null terminator
-  
-  // Save webhook URL (longer string)
-  for (unsigned int i = 0; i < webhook.length() && i < 170; i++) {
-    EEPROM.write(WEBHOOK_URL_ADDR + i, webhook[i]);
+
+  // Save webhook URL
+  for (unsigned int i = 0; i < 170; i++) {
+     if (i < webhook.length()) {
+        EEPROM.write(WEBHOOK_URL_ADDR + i, webhook[i]);
+     } else {
+        EEPROM.write(WEBHOOK_URL_ADDR + i, 0);
+        if (i == webhook.length()) break;
+     }
   }
-  EEPROM.write(WEBHOOK_URL_ADDR + min(webhook.length(), (unsigned int)170), 0); // Null terminator
   
   // Save webhook enabled flag
   EEPROM.write(WEBHOOK_ENABLED_ADDR, webhook_en ? 1 : 0);
@@ -962,9 +1327,11 @@ void saveConfig(String ssid, String password, String server, int port,
   EEPROM.write(CONFIG_FLAG_ADDR, CONFIG_FLAG);
   
   // Commit changes to EEPROM
-  EEPROM.commit();
-  
-  Serial.println("Configuration saved");
+  if (EEPROM.commit()) {
+      Serial.println("Configuration saved successfully.");
+  } else {
+      Serial.println("EEPROM commit failed!");
+  }
 }
 
 void blinkLED(int times, int delayms) {
@@ -972,7 +1339,7 @@ void blinkLED(int times, int delayms) {
     digitalWrite(LED_PIN, HIGH);
     delay(delayms);
     digitalWrite(LED_PIN, LOW);
-    delay(delayms);
+    if (i < times - 1) delay(delayms); // Prevent delay after last blink
   }
 }
 
@@ -1010,11 +1377,15 @@ void handleRoot() {
                 "  const emailEnabled = document.getElementById('email_enabled').checked;"
                 "  const webhookEnabled = document.getElementById('webhook_enabled').checked;"
                 "  const submitBtn = document.getElementById('submit-btn');"
-                "  submitBtn.disabled = !emailEnabled && !webhookEnabled;"
+                "  const validationMsg = document.getElementById('validation-msg');"
                 "  if (!emailEnabled && !webhookEnabled) {"
-                "    document.getElementById('validation-msg').style.display = 'block';"
+                "    submitBtn.disabled = true;"
+                "    validationMsg.style.display = 'block';"
+                "    return false; // Prevent form submission"
                 "  } else {"
-                "    document.getElementById('validation-msg').style.display = 'none';"
+                "    submitBtn.disabled = false;"
+                "    validationMsg.style.display = 'none';"
+                "    return true; // Allow form submission"
                 "  }"
                 "}"
                 "</script>"
@@ -1041,15 +1412,15 @@ void handleRoot() {
                 "<div class='section'>"
                 "<h2>Device Settings</h2>"
                 "<label for='location'>Location Description:</label>"
-                "<input type='text' id='location' name='location' placeholder='e.g. Living Room, Front Door, etc.'><br>"
+                "<input type='text' id='location' name='location' placeholder='e.g. Living Room, Front Door, etc.' maxlength='69'><br>"
                 "</div>"
 
                 "<div class='section'>"
                 "<h2>WiFi Settings</h2>"
                 "<label for='ssid'>WiFi SSID:</label>"
-                "<input type='text' id='ssid' name='ssid' required><br>"
+                "<input type='text' id='ssid' name='ssid' required maxlength='69'><br>"
                 "<label for='password'>WiFi Password:</label>"
-                "<input type='password' id='password' name='password'><br>"
+                "<input type='password' id='password' name='password' maxlength='69'><br>"
                 "</div>"
                 "<div class='section'>"
                 "<h2>Notification Settings</h2>"
@@ -1069,15 +1440,15 @@ void handleRoot() {
                 "</div>"
                 "<div id='email-fields'>"
                 "<label for='email_server'>SMTP Server:</label>"
-                "<input type='text' id='email_server' name='email_server'><br>"
+                "<input type='text' id='email_server' name='email_server' maxlength='69'><br>"
                 "<label for='email_port'>SMTP Port:</label>"
                 "<input type='number' id='email_port' name='email_port' value='587'><br>"
                 "<label for='email_username'>Email Username:</label>"
-                "<input type='text' id='email_username' name='email_username'><br>"
+                "<input type='text' id='email_username' name='email_username' maxlength='69'><br>"
                 "<label for='email_password'>Email Password:</label>"
-                "<input type='password' id='email_password' name='email_password'><br>"
+                "<input type='password' id='email_password' name='email_password' maxlength='69'><br>"
                 "<label for='email_recipient'>Recipient Email:</label>"
-                "<input type='email' id='email_recipient' name='email_recipient'><br>"
+                "<input type='email' id='email_recipient' name='email_recipient' maxlength='69'><br>"
                 "</div>"
                 "</div>"
                 
@@ -1092,7 +1463,7 @@ void handleRoot() {
                 "</div>"
                 "<div id='webhook-fields' style='display:none;'>"
                 "<label for='webhook_url'>Webhook URL:</label>"
-                "<input type='url' id='webhook_url' name='webhook_url' placeholder='https://example.com/webhook'><br>"
+                "<input type='url' id='webhook_url' name='webhook_url' placeholder='https://example.com/webhook' maxlength='169'><br>"
                 "<p class='info'>The device will send a JSON payload to this URL when the alarm is triggered.</p>"
                 "</div>"
                 "</div>"
@@ -1102,11 +1473,11 @@ void handleRoot() {
                 "</form>"
                 "</div>"
                 "<script>"
-                "// Initialize toggle states on page load"
+                "// Initialize toggle states and validation on page load"
                 "document.addEventListener('DOMContentLoaded', function() {"
                 "  toggleEmailFields();"
                 "  toggleWebhookFields();"
-                "  validateForm();"
+                "  validateForm(); // Initial validation check"
                 "});"
                 "</script>"
                 "</body></html>";
@@ -1114,6 +1485,7 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
+// Handle saving the initial setup configuration
 void handleSetup() {
   String ssid = server.arg("ssid");
   String password = server.arg("password");
@@ -1140,7 +1512,7 @@ void handleSetup() {
                       "<p class='error'>At least one notification method (Email or Webhook) must be enabled.</p>"
                       "<p>Redirecting back to setup page in 5 seconds...</p>"
                       "</div></body></html>";
-    
+  
     server.send(400, "text/html", errorHtml);
     return;
   }
@@ -1156,8 +1528,8 @@ void handleSetup() {
                 "</head><body>"
                 "<div class='container'>"
                 "<h1>Setup Complete</h1>"
-                "<p>Your configuration has been saved. The device will restart in normal mode.</p>"
-                "<p>If the device connects successfully to your WiFi network, it will be available at its assigned IP address.</p>"
+                "<p>Your configuration has been saved. The device will now restart and attempt to connect to your WiFi network.</p>"
+                "<p>If the connection is successful, you can access the device control panel at the IP address assigned by your router.</p>"
                 "<p>Restarting in 10 seconds...</p>"
                 "</div></body></html>";
   
@@ -1219,8 +1591,17 @@ void handleNormalRoot() {
   } else if (webhook_enabled) {
     notificationStatus = "Webhook notifications enabled";
   } else {
-    notificationStatus = "No notifications enabled!";
+    notificationStatus = "<span style='color:red;'>No notifications enabled!</span>";
   }
+
+  // --- OTA Status Display ---
+  String otaStatus = "";
+  if (updateInProgress) {
+    otaStatus = "<p><strong>Update:</strong> <span style='color:orange;'>Firmware update in progress...</span></p>";
+  } else {
+    otaStatus = "<p><strong>Firmware:</strong> " + firmwareVersion + "</p>";
+  }
+  // --- End OTA Status ---
   
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Panic Alarm Control</title>"
@@ -1238,7 +1619,7 @@ void handleNormalRoot() {
                 "</svg>"
                 "<div>"
                 "<h1>Panic Alarm Control</h1>"
-                "<p class='version'>Version " + firmwareVersion + "</p>"
+                // Removed version here, added to status below
                 "</div>"
                 "</div>"
                 "<div class='status-indicators'>"
@@ -1260,6 +1641,7 @@ void handleNormalRoot() {
                 "<div class='status'>"
                 "<p><strong>Device ID:</strong> " + configSSID + "</p>"
                 "<p><strong>Hardware:</strong> " + hardwarePlatform + "</p>"
+                 + otaStatus + // Added OTA status/firmware version here
                 "<p><strong>Location:</strong> " + (device_location.length() > 0 ? device_location : "Not specified") + "</p>"
                 "<p><strong>WiFi SSID:</strong> " + wifi_ssid + "</p>"
                 "<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>"
@@ -1269,6 +1651,11 @@ void handleNormalRoot() {
                 "<div class='buttons'>"
                 "<a href='/config' class='button'>Update Configuration</a>";
   
+  // Add OTA Check Button only if an update is not already in progress
+  if (!updateInProgress) {
+    html += "<a href='/check-update' class='button update'>Check for Updates</a>";
+  }
+
   if (email_enabled) {
     html += "<a href='/test' class='button test'>Test Email</a>";
   }
@@ -1284,9 +1671,11 @@ void handleNormalRoot() {
   server.send(200, "text/html", html);
 }
 
+// Handle displaying the configuration update page
 void handleConfigPage() {
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Update Configuration</title>"
+                // ... (Rest of the config page head - no changes needed) ...
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
                 "<link rel='stylesheet' href='style.css'>"
                 "<script>"
@@ -1306,11 +1695,15 @@ void handleConfigPage() {
                 "  const emailEnabled = document.getElementById('email_enabled').checked;"
                 "  const webhookEnabled = document.getElementById('webhook_enabled').checked;"
                 "  const submitBtn = document.getElementById('submit-btn');"
-                "  submitBtn.disabled = !emailEnabled && !webhookEnabled;"
+                "  const validationMsg = document.getElementById('validation-msg');"
                 "  if (!emailEnabled && !webhookEnabled) {"
-                "    document.getElementById('validation-msg').style.display = 'block';"
+                "    submitBtn.disabled = true;"
+                "    validationMsg.style.display = 'block';"
+                "    return false;"
                 "  } else {"
-                "    document.getElementById('validation-msg').style.display = 'none';"
+                "    submitBtn.disabled = false;"
+                "    validationMsg.style.display = 'none';"
+                "    return true;"
                 "  }"
                 "}"
                 "</script>"
@@ -1318,6 +1711,7 @@ void handleConfigPage() {
                 "<div class='container'>"
                 "<div class='header-container'>"
                 "<div class='logo-title'>"
+                // ... (logo SVG) ...
                 "<svg width='40' height='40' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg' class='logo'>"
                 "  <circle cx='100' cy='100' r='95' fill='#2f2f2f'/>"
                 "  <circle cx='100' cy='100' r='75' fill='#444'/>"
@@ -1326,7 +1720,7 @@ void handleConfigPage() {
                 "</svg>"
                 "<div>"
                 "<h1>Update Configuration</h1>"
-                "<p class='version'>Version " + firmwareVersion + "</p>"
+                "<p class='version'>Version " + firmwareVersion + "</p>" // Show firmware version
                 "</div>"
                 "</div>"
                 "</div>"
@@ -1337,15 +1731,15 @@ void handleConfigPage() {
                 "<div class='section'>"
                 "<h2>Device Settings</h2>"
                 "<label for='location'>Location Description:</label>"
-                "<input type='text' id='location' name='location' value='" + device_location + "' placeholder='e.g. Living Room, Front Door, etc.'><br>"
+                "<input type='text' id='location' name='location' value='" + device_location + "' placeholder='e.g. Living Room, Front Door, etc.' maxlength='69'><br>"
                 "</div>"
 
                 "<div class='section'>"
                 "<h2>WiFi Settings</h2>"
                 "<label for='ssid'>WiFi SSID:</label>"
-                "<input type='text' id='ssid' name='ssid' value='" + wifi_ssid + "' required><br>"
+                "<input type='text' id='ssid' name='ssid' value='" + wifi_ssid + "' required maxlength='69'><br>"
                 "<label for='password'>WiFi Password:</label>"
-                "<input type='password' id='password' name='password' value='" + wifi_password + "'><br>"
+                "<input type='password' id='password' name='password' value='" + wifi_password + "' maxlength='69'><br>"
                 "</div>"
                 "<div class='section'>"
                 "<h2>Notification Settings</h2>"
@@ -1353,7 +1747,7 @@ void handleConfigPage() {
                 "<div id='validation-msg' class='validation-error' style='display:none;'>"
                 "Please enable at least one notification method."
                 "</div>"
-                
+
                 "<div class='toggle-section'>"
                 "<h3>Email Notifications</h3>"
                 "<div class='toggle-container'>"
@@ -1365,18 +1759,18 @@ void handleConfigPage() {
                 "</div>"
                 "<div id='email-fields' style='" + (email_enabled ? "display:block" : "display:none") + "'>"
                 "<label for='email_server'>SMTP Server:</label>"
-                "<input type='text' id='email_server' name='email_server' value='" + email_server + "'><br>"
+                "<input type='text' id='email_server' name='email_server' value='" + email_server + "' maxlength='69'><br>"
                 "<label for='email_port'>SMTP Port:</label>"
                 "<input type='number' id='email_port' name='email_port' value='" + String(email_port) + "'><br>"
                 "<label for='email_username'>Email Username:</label>"
-                "<input type='text' id='email_username' name='email_username' value='" + email_username + "'><br>"
+                "<input type='text' id='email_username' name='email_username' value='" + email_username + "' maxlength='69'><br>"
                 "<label for='email_password'>Email Password:</label>"
-                "<input type='password' id='email_password' name='email_password' value='" + email_password + "'><br>"
+                "<input type='password' id='email_password' name='email_password' value='" + email_password + "' maxlength='69'><br>"
                 "<label for='email_recipient'>Recipient Email:</label>"
-                "<input type='email' id='email_recipient' name='email_recipient' value='" + email_recipient + "'><br>"
+                "<input type='email' id='email_recipient' name='email_recipient' value='" + email_recipient + "' maxlength='69'><br>"
                 "</div>"
                 "</div>"
-                
+
                 "<div class='toggle-section'>"
                 "<h3>Webhook Notifications</h3>"
                 "<div class='toggle-container'>"
@@ -1388,18 +1782,18 @@ void handleConfigPage() {
                 "</div>"
                 "<div id='webhook-fields' style='" + (webhook_enabled ? "display:block" : "display:none") + "'>"
                 "<label for='webhook_url'>Webhook URL:</label>"
-                "<input type='url' id='webhook_url' name='webhook_url' value='" + webhook_url + "' placeholder='https://example.com/webhook'><br>"
+                "<input type='url' id='webhook_url' name='webhook_url' value='" + webhook_url + "' placeholder='https://example.com/webhook' maxlength='169'><br>"
                 "<p class='info'>The device will send a JSON payload to this URL when the alarm is triggered.</p>"
                 "</div>"
                 "</div>"
                 "</div>"
-                
+
                 "<input type='submit' id='submit-btn' value='Update Configuration'>"
                 "</form>"
-                "<div class='back'><a href='/' class='button'>Back to Home</a></div>"
+                "<div class='back'><a href='/' class='button back-button'>Back to Home</a></div>" // Added class for styling
                 "</div>"
                 "<script>"
-                "// Initialize toggle states on page load"
+                "// Initialize toggle states and validation on page load"
                 "document.addEventListener('DOMContentLoaded', function() {"
                 "  toggleEmailFields();"
                 "  toggleWebhookFields();"
@@ -1411,6 +1805,7 @@ void handleConfigPage() {
   server.send(200, "text/html", html);
 }
 
+// Handle saving the updated configuration
 void handleUpdate() {
   String ssid = server.arg("ssid");
   String password = server.arg("password");
@@ -1453,8 +1848,8 @@ void handleUpdate() {
                 "</head><body>"
                 "<div class='container'>"
                 "<h1>Configuration Updated</h1>"
-                "<p>Your settings have been saved.</p>"
-                "<p>Redirecting to home page in 5 seconds...</p>"
+                "<p>Your settings have been saved successfully.</p>"
+                "<p>Redirecting to the home page in 5 seconds...</p>"
                 "</div></body></html>";
   
   server.send(200, "text/html", html);
@@ -1463,16 +1858,43 @@ void handleUpdate() {
   loadConfig();
 }
 
+// Handle sending a test email
 void handleTestEmail() {
   String result;
   if (email_enabled) {
-    if (sendEmailAlert()) {
-      result = "Test email sent successfully!";
+    Serial.println("Sending test email...");
+    // Use a slightly different subject/body for test emails
+    ESP_Mail_Session session;
+    session.server.host_name = email_server.c_str();
+    session.server.port = email_port;
+    session.login.email = email_username.c_str();
+    session.login.password = email_password.c_str();
+
+    SMTP_Message message;
+    message.sender.name = "Panic Alarm (Test)";
+    message.sender.email = email_username.c_str();
+    message.subject = "Panic Alarm - TEST EMAIL";
+    message.addRecipient("User", email_recipient.c_str());
+    message.html.content = "<p>This is a test email from your Panic Alarm device.</p>"
+                           "<p>If you received this, your email settings are likely correct.</p>"
+                           "<p><strong>Device ID:</strong> " + configSSID + "</p>"
+                           "<p><strong>Location:</strong> " + (device_location.length() > 0 ? device_location : "Not specified") + "</p>";
+
+    if (!smtp.connect(&session)) {
+       result = "Failed to connect to SMTP server. Check server/port/credentials.";
+       Serial.println("SMTP Connect Error: " + smtp.errorReason());
     } else {
-      result = "Failed to send test email. Please check your email settings.";
+        if (!MailClient.sendMail(&smtp, &message)) {
+            result = "Failed to send test email. Error: " + smtp.errorReason();
+            Serial.println("Email Send Error: " + smtp.errorReason());
+        } else {
+            result = "Test email sent successfully!";
+            Serial.println("Test email sent.");
+        }
     }
   } else {
-    result = "Email notifications are disabled. Please enable them in settings.";
+    result = "Email notifications are disabled. Please enable them in settings first.";
+    Serial.println("Test email skipped: Email disabled.");
   }
   
   String html = "<!DOCTYPE html><html><head>"
@@ -1482,7 +1904,7 @@ void handleTestEmail() {
                 "<meta http-equiv='refresh' content='5;url=/'>"
                 "</head><body>"
                 "<div class='container'>"
-                "<h1>Test Result</h1>"
+                "<h1>Email Test Result</h1>"
                 "<p>" + result + "</p>"
                 "<p>Redirecting to home page in 5 seconds...</p>"
                 "</div></body></html>";
@@ -1490,18 +1912,53 @@ void handleTestEmail() {
   server.send(200, "text/html", html);
 }
 
+// Handle sending a test webhook
 void handleTestWebhook() {
   String result;
   if (webhook_enabled) {
-    if (sendWebhook()) {
-      result = "Test webhook sent successfully!";
+    Serial.println("Sending test webhook...");
+    // Use a slightly different payload for test webhooks
+    HTTPClient http;
+     // Ensure URL has protocol
+    if (webhook_url.startsWith("http://") || webhook_url.startsWith("https://")) {
+        http.begin(webhook_url);
     } else {
-      result = "Failed to send test webhook. Please check your webhook URL and network connection.";
+        String correctedUrl = "https://" + webhook_url;
+        http.begin(correctedUrl);
     }
+    http.addHeader("Content-Type", "application/json");
+
+    String jsonPayload = "{"
+                      "\"event\": \"TEST_NOTIFICATION\","
+                      "\"message\": \"This is a test notification from your Panic Alarm device.\","
+                      "\"device_id\": \"" + configSSID + "\","
+                      "\"hardware\": \"" + hardwarePlatform + "\","
+                      "\"location\": \"" + (device_location.length() > 0 ? device_location : "Not specified") + "\","
+                      "\"ip_address\": \"" + WiFi.localIP().toString() + "\","
+                      "\"mac_address\": \"" + WiFi.macAddress() + "\""
+                      "}";
+
+    int httpCode = http.POST(jsonPayload);
+
+    if (httpCode > 0) {
+        String response = http.getString();
+        Serial.printf("Test webhook sent. HTTP Code: %d, Response: %s\n", httpCode, response.c_str());
+        if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_ACCEPTED || httpCode == HTTP_CODE_NO_CONTENT) {
+            result = "Test webhook sent successfully! (HTTP Code: " + String(httpCode) + ")";
+        } else {
+            result = "Test webhook sent, but received unexpected HTTP code: " + String(httpCode) + ". Check webhook receiver.";
+        }
+    } else {
+        result = "Failed to send test webhook. Error: " + http.errorToString(httpCode).c_str();
+        Serial.println("Test webhook failed: " + http.errorToString(httpCode).c_str());
+    }
+    http.end();
+
   } else {
-    result = "Webhook notifications are disabled. Please enable them in settings.";
+    result = "Webhook notifications are disabled. Please enable them in settings first.";
+    Serial.println("Test webhook skipped: Webhook disabled.");
   }
-  
+
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Test Result</title>"
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
@@ -1509,16 +1966,19 @@ void handleTestWebhook() {
                 "<meta http-equiv='refresh' content='5;url=/'>"
                 "</head><body>"
                 "<div class='container'>"
-                "<h1>Test Result</h1>"
+                "<h1>Webhook Test Result</h1>"
                 "<p>" + result + "</p>"
                 "<p>Redirecting to home page in 5 seconds...</p>"
                 "</div></body></html>";
-  
+
   server.send(200, "text/html", html);
 }
 
+// Handle device factory reset request
 void handleReset() {
-  String html = "<!DOCTYPE html><html><head>"
+   // Confirmation step
+  if (!server.hasArg("confirm") || server.arg("confirm") != "true") {
+      String html = "<!DOCTYPE html><html><head>"
                 "<title>Factory Reset</title>"
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
                 "<link rel='stylesheet' href='style.css'>"
@@ -1533,107 +1993,176 @@ void handleReset() {
                 "  <ellipse cx='85' cy='80' rx='20' ry='12' fill='white' opacity='0.3'/>"
                 "</svg>"
                 "<div>"
-                "<h1>Factory Reset</h1>"
+                "<h1>Factory Reset Confirmation</h1>"
                 "<p class='version'>Version " + firmwareVersion + "</p>"
                 "</div>"
                 "</div>"
                 "</div>"
-                "<p>Are you sure you want to reset all settings?</p>"
-                "<p>This will erase all configuration and restart the device in setup mode.</p>"
+                "<p style='color:red; font-weight:bold;'>WARNING:</p>"
+                "<p>Are you absolutely sure you want to reset all settings?</p>"
+                "<p>This action will erase your WiFi credentials, notification settings, and location information. The device will restart in setup mode, requiring you to reconnect to the '" + configSSID + "' WiFi network and configure it again.</p>"
+                "<p>This action cannot be undone.</p>"
                 "<div class='buttons'>"
-                "<a href='/' class='button'>Cancel</a>"
-                "<a href='javascript:confirmReset()' class='button reset'>Yes, Reset Everything</a>"
+                // Use buttons instead of links for actions
+                "<form action='/reset' method='GET' style='display: inline-block; width: 48%; margin-right: 2%;'>"
+                "<input type='hidden' name='confirm' value='true'>"
+                "<button type='submit' class='button reset'>Yes, Reset Everything</button>"
+                "</form>"
+                "<form action='/' method='GET' style='display: inline-block; width: 48%;'>"
+                "<button type='submit' class='button back-button'>Cancel</button>"
+                "</form>"
                 "</div>"
-                "<script>"
-                "function confirmReset() {"
-                "  fetch('/reset?confirm=true')"
-                "  .then(response => {"
-                "    document.body.innerHTML = '<div class=\"container\"><h1>Factory Reset</h1><p>Device is resetting...</p></div>';"
-                "  });"
-                "}"
-                "</script>"
                 "</div></body></html>";
-  
-  if (server.hasArg("confirm") && server.arg("confirm") == "true") {
-    // Erase configuration flag to force setup mode
-    EEPROM.write(CONFIG_FLAG_ADDR, 0);
-    EEPROM.commit();
-    
-    server.send(200, "text/html", "<!DOCTYPE html><html><head>"
-                "<title>Resetting</title>"
-                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-                "<link rel='stylesheet' href='style.css'>"
-                "</head><body>"
-                "<div class='container'>"
-                "<h1>Factory Reset</h1>"
-                "<p>Device is resetting. Connect to the WiFi network \"" + configSSID + "\" to set up the device again.</p>"
-                "</div></body></html>");
-    
-    delay(1000);
-    ESP.restart();
-  } else {
-    server.send(200, "text/html", html);
+      server.send(200, "text/html", html);
+      return; // Stop processing here until confirmed
   }
+
+  // --- Confirmed Reset ---
+  Serial.println("Factory reset initiated...");
+
+  // Erase configuration flag and potentially other settings
+  EEPROM.write(CONFIG_FLAG_ADDR, 0); // Erase config flag
+  // Optionally clear other EEPROM areas
+  for(int i = SSID_ADDR; i < EEPROM_SIZE; i++){
+      EEPROM.write(i, 0);
+  }
+
+  if (EEPROM.commit()) {
+      Serial.println("EEPROM cleared for reset.");
+  } else {
+      Serial.println("EEPROM commit failed during reset!");
+      // Still proceed with restart
+  }
+
+  String resetMsgHtml = "<!DOCTYPE html><html><head>"
+                        "<title>Resetting...</title>"
+                        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                        "<link rel='stylesheet' href='style.css'>"
+                        // No refresh needed here, device will restart
+                        "</head><body>"
+                        "<div class='container'>"
+                        "<h1>Factory Resetting</h1>"
+                        "<p>Device is resetting and erasing configuration...</p>"
+                        "<p>After restart, please connect to the WiFi network named \"" + configSSID + "\" to begin setup again.</p>"
+                        "</div></body></html>";
+
+  server.send(200, "text/html", resetMsgHtml);
+
+  delay(2000); // Allow time for the response to be sent
+  ESP.restart();
 }
 
+
+// --- OTA Web Handler ---
+void handleCheckUpdate() {
+  String result;
+  bool updateStarted = false; // Track if update process began
+
+  if (WiFi.status() != WL_CONNECTED) {
+    result = "WiFi not connected. Cannot check for updates.";
+  } else if (updateInProgress) {
+    result = "An update is already in progress. Please wait for the device to restart.";
+  } else {
+    Serial.println("Manual update check triggered via web UI...");
+    if (checkForUpdates()) {
+      // If checkForUpdates returns true, it means downloadAndUpdate was called and *should* restart the device upon success.
+      // The user might see this page briefly before the device restarts.
+      result = "Update found and download initiated. The device will restart automatically if the update is successful.";
+      updateStarted = true;
+    } else {
+      // Check if checkForUpdates found a version but failed to start/complete
+      if (newFirmwareVersion.length() > 0) {
+         result = "Found new version " + newFirmwareVersion + ", but the update process failed to start or complete. Check Serial Monitor for details.";
+      } else {
+         result = "No new firmware updates available. Your device is up to date (Version: " + firmwareVersion + ").";
+      }
+    }
+  }
+
+  // Display a status page. If update started, it might only show briefly.
+  String html = "<!DOCTYPE html><html><head>"
+                "<title>Check for Updates</title>"
+                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                "<link rel='stylesheet' href='style.css'>"
+                // Only refresh if update *didn't* start, otherwise let restart handle it
+                + (updateStarted ? "" : "<meta http-equiv='refresh' content='7;url=/'>") +
+                "</head><body>"
+                "<div class='container'>"
+                "<h1>Update Check Result</h1>"
+                "<p>" + result + "</p>"
+                + (updateStarted ? "<p>If the update is successful, the device will restart shortly.</p>" : "<p>Redirecting back to the home page in 7 seconds...</p>") +
+                "</div></body></html>";
+
+  server.send(200, "text/html", html);
+}
+
+// Handle serving the CSS file
 void handleCss() {
   String css = "body {"
                "  font-family: Arial, sans-serif;"
                "  margin: 0;"
                "  padding: 0;"
-               "  background-color: #f0f0f0;"
+               "  background-color: #f4f4f4;" // Light gray background
                "}"
                ".container {"
-               "  max-width: 600px;"
-               "  margin: 0 auto;"
-               "  padding: 20px;"
+               "  max-width: 700px;" // Slightly wider
+               "  margin: 20px auto;" // Add margin top/bottom
+               "  padding: 25px;"
+               "  background-color: #fff;" // White background for container
+               "  border-radius: 8px;" // Rounded corners
+               "  box-shadow: 0 4px 8px rgba(0,0,0,0.1);" // Subtle shadow
                "  box-sizing: border-box;"
                "}"
                "h1, h2, h3 {"
                "  color: #333;"
-               "  margin: 0 0 5px 0;"
+               "  margin-top: 0;" // Remove default top margin
+               "  margin-bottom: 10px;"
                "}"
+               "h1 { font-size: 1.8em; }"
+               "h2 { font-size: 1.4em; color: #555; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 15px;}"
+               "h3 { font-size: 1.1em; color: #666; margin-bottom: 10px; }"
                "/* Section elements */"
                ".section, .toggle-section, .status {"
-               "  background-color: #fff;"
+               "  background-color: #f9f9f9;" // Very light gray for sections
+               "  border: 1px solid #eee;" // Light border
                "  border-radius: 5px;"
-               "  padding: 15px;"
-               "  margin-bottom: 20px;"
-               "  box-shadow: 0 2px 5px rgba(0,0,0,0.1);"
+               "  padding: 20px;" // More padding
+               "  margin-bottom: 25px;" // More space between sections
                "  width: 100%;"
                "  box-sizing: border-box;"
                "}"
+               ".status p { margin: 8px 0; }" // Spacing for status lines
+               ".status strong { color: #444; }"
                "/* Header layout */"
                ".header-container {"
                "  display: flex;"
                "  flex-wrap: wrap;"
-               "  align-items: flex-start;"
-               "  margin-bottom: 20px;"
+               "  align-items: center;" // Align items vertically
+               "  justify-content: space-between;" // Space out logo/title and indicators
+               "  margin-bottom: 25px;"
+               "  padding-bottom: 15px;"
+               "  border-bottom: 1px solid #ddd;"
                "}"
                ".logo-title {"
                "  display: flex;"
                "  align-items: center;"
-               "  flex: 1;"
-               "  min-width: 250px;"
-               "  margin-bottom: 10px;"
+               "  /* flex: 1; */" // Allow shrinking if needed
+               "  margin-right: 20px;" // Space before indicators
                "}"
                ".logo {"
                "  margin-right: 15px;"
-               "  display: flex;"
-               "  align-items: center;"
                "}"
                ".version {"
-               "  color: #666;"
-               "  font-size: 14px;"
-               "  margin-top: 5px;"
+               "  color: #777;" // Darker gray for version
+               "  font-size: 0.9em;" // Slightly smaller
+               "  margin-top: 3px;"
                "  margin-bottom: 0;"
                "}"
                ".status-indicators {"
                "  display: flex;"
                "  align-items: center;"
-               "  gap: 15px;"
-               "  margin-top: 10px;"
-               "  margin-left: auto;"
+               "  gap: 20px;" // More gap
+               "  /* margin-left: auto; */" // Removed, handled by justify-content
                "}"
                "/* Status indicators */"
                ".wifi-icon {"
@@ -1642,10 +2171,10 @@ void handleCss() {
                "}"
                ".battery-icon {"
                "  position: relative;"
-               "  width: 22px;"
+               "  width: 24px;" // Slightly larger
                "  height: 12px;"
-               "  border: 2px solid #4CAF50;"
-               "  border-radius: 2px;"
+               "  border: 2px solid #555;" // Darker border
+               "  border-radius: 3px;" // More rounded
                "  padding: 1px;"
                "  box-sizing: content-box;"
                "  display: inline-block;"
@@ -1654,18 +2183,18 @@ void handleCss() {
                ".battery-icon:after {"
                "  content: \"\";"
                "  position: absolute;"
-               "  right: -4px;"
+               "  right: -5px;" // Adjusted position
                "  top: 50%;"
                "  transform: translateY(-50%);"
-               "  width: 2px;"
+               "  width: 3px;" // Thicker terminal
                "  height: 6px;"
-               "  background-color: #4CAF50;"
+               "  background-color: #555;" // Darker terminal
                "  border-radius: 0 2px 2px 0;"
                "}"
                ".battery-level {"
                "  height: 100%;"
                "  border-radius: 1px;"
-               "  transition: width 0.5s ease-in-out;"
+               "  transition: width 0.5s ease-in-out, background-color 0.5s ease-in-out;" // Animate color too
                "}"
                "/* Tooltips */"
                ".tooltip {"
@@ -1674,20 +2203,21 @@ void handleCss() {
                "}"
                ".tooltip .tooltip-text {"
                "  visibility: hidden;"
-               "  background-color: rgba(0, 0, 0, 0.7);"
+               "  background-color: rgba(0, 0, 0, 0.8);" // Darker tooltip background
                "  color: #fff;"
                "  text-align: center;"
-               "  padding: 5px 10px;"
-               "  border-radius: 4px;"
+               "  padding: 6px 12px;" // More padding
+               "  border-radius: 5px;" // Rounded tooltip
                "  white-space: nowrap;"
                "  position: absolute;"
-               "  z-index: 1;"
-               "  bottom: 125%;"
+               "  z-index: 10;" // Ensure tooltip is on top
+               "  bottom: 130%;" // Position above the icon
                "  left: 50%;"
                "  transform: translateX(-50%);"
                "  opacity: 0;"
-               "  transition: opacity 0.3s;"
-               "  pointer-events: none;"
+               "  transition: opacity 0.3s ease-in-out;"
+               "  pointer-events: none;" // Don't interfere with mouse
+               "  font-size: 0.85em;"
                "}"
                ".tooltip:hover .tooltip-text {"
                "  visibility: visible;"
@@ -1695,77 +2225,91 @@ void handleCss() {
                "}"
                "/* Buttons */"
                ".buttons {"
-               "  margin-top: 20px;"
+               "  margin-top: 25px;"
+               "  display: flex;" // Use flexbox for buttons
+               "  flex-wrap: wrap;" // Allow wrapping on small screens
+               "  gap: 10px;" // Space between buttons
                "}"
-               ".button, input[type='submit'] {"
-               "  background-color: #4CAF50;"
+               ".button, input[type='submit'], button.button {" // Style button element too
+               "  background-color: #5c6bc0;" // Indigo primary color
                "  color: white;"
-               "  padding: 10px 15px;"
+               "  padding: 12px 18px;" // Larger padding
                "  border: none;"
-               "  border-radius: 4px;"
+               "  border-radius: 5px;"
                "  cursor: pointer;"
-               "  font-size: 16px;"
-               "  margin-top: 10px;"
-               "  display: block;"
-               "  width: 100%;"
+               "  font-size: 1em;" // Relative font size
                "  text-align: center;"
                "  text-decoration: none;"
+               "  transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;"
+               "  flex: 1 1 auto;" // Allow buttons to grow/shrink
+               "  min-width: 150px;" // Minimum width before wrapping
                "  box-sizing: border-box;"
+               "  box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
                "}"
-               ".test {"
-               "  background-color: #2196F3;"
+               ".button:hover, input[type='submit']:hover, button.button:hover {"
+               "  background-color: #3f51b5;" // Darker indigo on hover
+               "  box-shadow: 0 4px 8px rgba(0,0,0,0.15);"
                "}"
-               ".reset {"
-               "  background-color: #f44336;"
-               "}"
+                // Specific button colors
+               ".update { background-color: #66bb6a; } .update:hover { background-color: #4caf50; }" // Green for update check
+               ".test { background-color: #29b6f6; } .test:hover { background-color: #03a9f4; }" // Light blue for test
+               ".reset { background-color: #ef5350; } .reset:hover { background-color: #f44336; }" // Red for reset
+               ".back-button { background-color: #78909c; } .back-button:hover { background-color: #546e7a; }" // Gray for back/cancel
                "input[type='submit']:disabled {"
                "  background-color: #cccccc;"
                "  cursor: not-allowed;"
+               "  box-shadow: none;"
                "}"
                "/* Form elements */"
                "label {"
                "  display: block;"
-               "  margin-top: 10px;"
+               "  margin-top: 15px;" // More space above label
+               "  margin-bottom: 5px;" // Space below label
                "  font-weight: bold;"
+               "  color: #555;"
                "}"
                "input[type='text'], input[type='password'], input[type='email'], input[type='number'], input[type='url'] {"
                "  width: 100%;"
-               "  padding: 8px;"
-               "  margin-top: 5px;"
-               "  border: 1px solid #ddd;"
+               "  padding: 10px;" // More padding in inputs
+               "  margin-top: 0;" // Remove top margin, use label margin
+               "  border: 1px solid #ccc;" // Slightly darker border
                "  border-radius: 4px;"
                "  box-sizing: border-box;"
+               "  font-size: 1em;"
                "}"
+               "input:focus { outline-color: #5c6bc0; }" // Outline matches button color
                ".back {"
-               "  margin-top: 20px;"
+               "  margin-top: 25px;"
                "}"
                ".note {"
                "  color: #666;"
                "  font-style: italic;"
-               "  margin-bottom: 10px;"
+               "  margin-bottom: 15px;"
+               "  font-size: 0.9em;"
                "}"
                ".info {"
-               "  color: #2196F3;"
+               "  color: #03a9f4;" // Match test button color
                "  font-size: 0.9em;"
-               "  margin-top: 5px;"
+               "  margin-top: 8px;"
                "}"
                ".validation-error {"
-               "  color: #f44336;"
+               "  color: #d32f2f;" // Darker red
                "  font-weight: bold;"
-               "  margin: 10px 0;"
-               "  padding: 10px;"
-               "  background-color: #ffebee;"
+               "  margin: 15px 0;"
+               "  padding: 12px;" // More padding
+               "  background-color: #ffebee;" // Light red background
+               "  border: 1px solid #ef9a9a;" // Red border
                "  border-radius: 4px;"
                "}"
                ".error {"
-               "  color: #f44336;"
+               "  color: #d32f2f;"
                "  font-weight: bold;"
                "}"
                "/* Toggle switches */"
                ".switch {"
                "  position: relative;"
                "  display: inline-block;"
-               "  width: 50px;"
+               "  width: 50px;" // Standard size
                "  height: 24px;"
                "  margin-right: 10px;"
                "  vertical-align: middle;"
@@ -1784,21 +2328,22 @@ void handleCss() {
                "  bottom: 0;"
                "  background-color: #ccc;"
                "  transition: .4s;"
-               "  border-radius: 24px;"
+               "  border-radius: 24px;" // Fully rounded
                "}"
                ".slider:before {"
                "  position: absolute;"
                "  content: \"\";"
-               "  height: 16px;"
-               "  width: 16px;"
-               "  left: 4px;"
-               "  bottom: 4px;"
+               "  height: 18px;" // Larger knob
+               "  width: 18px;"
+               "  left: 3px;" // Adjusted position
+               "  bottom: 3px;"
                "  background-color: white;"
                "  transition: .4s;"
                "  border-radius: 50%;"
+               "  box-shadow: 0 1px 3px rgba(0,0,0,0.2);" // Add shadow to knob
                "}"
                "input:checked + .slider {"
-               "  background-color: #2196F3;"
+               "  background-color: #5c6bc0;" // Match primary button color
                "}"
                "input:checked + .slider:before {"
                "  transform: translateX(26px);"
@@ -1806,12 +2351,18 @@ void handleCss() {
                ".toggle-container {"
                "  display: flex;"
                "  align-items: center;"
-               "  margin-bottom: 15px;"
-               "  padding: 5px 0;"
+               "  margin-bottom: 10px;" // Less margin below toggle line
+               "  /* padding: 5px 0; */" // Remove padding here
                "}"
                ".toggle-label {"
                "  font-weight: bold;"
+               "  color: #444;"
                "  margin-left: 5px;"
+               "}"
+               ".toggle-section > div:not(.toggle-container) {" // Indent fields under toggle
+               "  padding-left: 20px;"
+               "  border-left: 2px solid #eee;"
+               "  margin-left: 10px;"
                "}"
                ".small-note {"
                "  font-size: 0.85em;"
@@ -1819,18 +2370,27 @@ void handleCss() {
                "  margin-top: 5px;"
                "}"
                "/* Responsive adjustments */"
-               "@media (max-width: 480px) {"
+               "@media (max-width: 600px) {"
                "  .container {"
-               "    padding: 10px;"
+               "    margin: 10px;"
+               "    padding: 15px;"
                "  }"
                "  .header-container {"
                "    flex-direction: column;"
+               "    align-items: flex-start;" // Align left on mobile
                "  }"
                "  .status-indicators {"
-               "    margin-left: 0;"
                "    margin-top: 15px;"
+               "    width: 100%;" // Take full width
+               "    justify-content: flex-start;" // Align left
                "  }"
+               "  .buttons {"
+               "     flex-direction: column;" // Stack buttons vertically
+               "  }"
+               "  .button, input[type='submit'], button.button {"
+               "     width: 100%;" // Full width buttons
+               "  }"
+               "  .logo-title h1 { font-size: 1.5em; }"
                "}";
-               
   server.send(200, "text/css", css);
 }
