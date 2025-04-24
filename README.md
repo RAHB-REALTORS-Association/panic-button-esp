@@ -6,6 +6,21 @@ A standalone ESP32-based Wi-Fi panic button that sends email and/or webhook aler
 
 ![Panic button hardware](docs/images/screenshot/panic-button.jpg)
 
+## 📚 Table of Contents
+
+- [✨ Features](#-features)
+- [🛠️ Hardware](#️-hardware)
+- [🔌 Pinout](#-pinout)
+- [📦 Libraries Used](#-libraries-used)
+- [🚀 Getting Started](#-getting-started)
+- [🔧 Web Interface](#-web-interface)
+- [🔋 Battery Monitoring](#-battery-monitoring)
+- [🌐 Webhook Integration](#-webhook-integration)
+- [🔁 Resetting](#-resetting)
+- [🖼️ UI Preview](#️-ui-preview)
+- [🖨️ 3D-Printed Case](#️-3d-printed-case)
+- [📄 License](#-license)
+
 ## ✨ Features
 
 - Captive portal for Wi-Fi and alert configuration
