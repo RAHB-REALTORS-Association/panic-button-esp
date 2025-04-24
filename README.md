@@ -132,4 +132,5 @@ The top and bottom shells include simple interlocking features. Use supports onl
 
 ## 📄 License
 
-GPLv3 – see [LICENSE](LICENSE) for details.
+**Firmware:** GPLv3 – see [LICENSE](LICENSE) for details.  
+**Case:** MIT License – see [case/LICENSE](case/LICENSE) for details.
