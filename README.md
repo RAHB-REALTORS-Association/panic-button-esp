@@ -95,6 +95,26 @@ Access the reset page via the web UI to:
 
 ![Configuration Page](docs/images/screenshot/config-page.png)
 
+## 🖨️ 3D-Printed Case
+
+This project includes a printable enclosure tailored for the FireBeetle ESP32-C6. All STL and 3MF files are located in the `case/v1/` directory:
+
+- `panic_button_case.3mf` – complete project layout for slicers
+- `case_back.stl`
+- `case_bottom.stl`
+- `case_front.stl`
+- `case_top.stl`
+
+### Recommended Slicer Settings
+
+- **Material:** PLA, PETG, or similar
+- **Layer Height:** 0.2 mm
+- **Infill:** ≥ 15%
+- **Supports:** Optional (recommended for top-bottom half alignment when screwed together)
+- **Perimeters/Walls:** 2 or 3
+
+The top and bottom shells include simple interlocking features. Use supports only if dimensional accuracy matters for your use case.
+
 ## 📄 License
 
 GPLv3 – see [LICENSE](LICENSE) for details.
