@@ -659,11 +659,7 @@ bool sendEmailAlert() {
                    "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                    "<p><strong>WiFi Signal:</strong> " + String(rssi) + " dBm (" + signalQuality + ")</p>"
                    "<p><strong>" + webhookStatus + "</strong></p>"
-                   #if ENABLE_BATTERY_MONITORING
                    "<p><strong>Battery:</strong> " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</p>"
-                   #else
-                   "<p><strong>Battery:</strong> Not installed</p>"
-                   #endif
                    "<p><strong>Time:</strong> " + String(millis() / 1000) + " seconds since device boot</p>"
                    "</div>";
   message.html.content = htmlMsg.c_str();
@@ -683,6 +679,7 @@ bool sendEmailAlert() {
 
 // Send low battery alert
 bool sendLowBatteryAlert() {
+  #if ENABLE_BATTERY_MONITORING
   bool notificationSent = false;
   
   // Try to send webhook if enabled
@@ -702,6 +699,9 @@ bool sendLowBatteryAlert() {
   }
   
   return notificationSent;
+  #else
+  return false; // Battery monitoring disabled
+  #endif
 }
 
 // Send low battery alert via webhook
@@ -794,15 +794,9 @@ bool sendLowBatteryEmail() {
                    "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
                    "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                    "<p><strong>WiFi Signal:</strong> " + String(rssi) + " dBm (" + signalQuality + ")</p>"
-                   #if ENABLE_BATTERY_MONITORING
                    "<p><strong>Battery level:</strong> " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</p>"
-                   #else
-                    "<p><strong>Battery:</strong> Not installed</p>"
-                   #endif
                    + webhookStatus +
-                   #if ENABLE_BATTERY_MONITORING
                    "<p>Please replace or recharge the battery soon.</p></div>";
-                   #endif
   message.html.content = htmlMsg.c_str();
   
   if (!smtp.connect(&session)) {
