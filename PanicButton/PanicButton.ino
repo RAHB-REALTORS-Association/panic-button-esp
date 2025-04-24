@@ -19,18 +19,21 @@
 #define WEBHOOK_URL_ADDR 504
 #define WEBHOOK_ENABLED_ADDR 674
 #define EMAIL_ENABLED_ADDR 675
-#define BUTTON_PIN 4    // FireBeetle suitable GPIO pin
-#define LED_PIN 15      // FireBeetle's onboard LED
-#define BATTERY_PIN 0   // A0 on FireBeetle ESP32-C6
+
+#define ENABLE_BATTERY_MONITORING 1  // Set to 0 to disable battery monitoring
+#define ENABLE_DEEP_SLEEP 1          // Set to 0 to disable deep sleep functionality
+#define BUTTON_PIN 4                 // FireBeetle suitable GPIO pin
+#define LED_PIN 15                   // FireBeetle's onboard LED
+#define BATTERY_PIN 0                // A0 on FireBeetle ESP32-C6
 #define DNS_PORT 53
 #define WEBSERVER_PORT 80
 #define CONFIG_FLAG 0xAA
-#define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
-#define TIME_TO_SLEEP  60       // Time ESP32 will sleep (in seconds)
-#define BATT_SAMPLES 10         // Battery read averaging
-#define BATT_MAX_VOLTAGE 4.2    // Maximum battery voltage (fully charged)
-#define BATT_MIN_VOLTAGE 3.2    // Minimum battery voltage (depleted)
-#define WIFI_CHECK_INTERVAL 30000 // Check WiFi signal every 30 seconds
+#define uS_TO_S_FACTOR 1000000       // Conversion factor for micro seconds to seconds
+#define TIME_TO_SLEEP  60            // Time ESP32 will sleep (in seconds)
+#define BATT_SAMPLES 10              // Battery read averaging
+#define BATT_MAX_VOLTAGE 4.2         // Maximum battery voltage (fully charged)
+#define BATT_MIN_VOLTAGE 3.2         // Minimum battery voltage (depleted)
+#define WIFI_CHECK_INTERVAL 30000    // Check WiFi signal every 30 seconds
 
 // Global variables
 bool isConfigMode = false;
@@ -109,8 +112,11 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
+  
+  #if ENABLE_BATTERY_MONITORING
   pinMode(BATTERY_PIN, INPUT);
   analogReadResolution(12); // 12-bit ADC resolution
+  #endif
 
   // Determine hardware platform
   #if defined(CONFIG_IDF_TARGET_ESP32C6)
@@ -131,6 +137,7 @@ void setup() {
   Serial.print("Generated unique SSID: ");
   Serial.println(configSSID);
 
+  #if ENABLE_BATTERY_MONITORING
   // Read initial battery voltage using onboard divider (×2)
   int mV = analogReadMilliVolts(BATTERY_PIN);
   batteryVoltage = (mV * 2) / 1000.0;
@@ -140,13 +147,20 @@ void setup() {
   Serial.print(" V (");
   Serial.print(batteryPercentage);
   Serial.println("%)");
+  #else
+  // Set default values when battery monitoring is disabled
+  batteryVoltage = 4.0;
+  batteryPercentage = 100;
+  #endif
 
   // Initialize EEPROM
   EEPROM.begin(EEPROM_SIZE);
 
+  #if ENABLE_DEEP_SLEEP
   // Configure deep sleep wakeup
   uint64_t bitmask = 1ULL << BUTTON_PIN;
   esp_sleep_enable_ext1_wakeup(bitmask, ESP_EXT1_WAKEUP_ANY_LOW);
+  #endif
 
   // Check if device is configured
   if (EEPROM.read(CONFIG_FLAG_ADDR) != CONFIG_FLAG) {
@@ -237,8 +251,10 @@ void loop() {
     // Normal operation mode
     checkButton();
     
+    #if ENABLE_BATTERY_MONITORING
     // Check battery status periodically
     checkBatteryStatus();
+    #endif
     
     // Check WiFi signal periodically
     if (millis() - lastWifiCheck > WIFI_CHECK_INTERVAL) {
@@ -255,6 +271,7 @@ void loop() {
 
 // Check battery status periodically
 void checkBatteryStatus() {
+  #if ENABLE_BATTERY_MONITORING
   if (millis() - lastBatteryCheck > 60000) { // Check every minute
     lastBatteryCheck = millis();
     batteryVoltage = getBatteryVoltage();
@@ -276,10 +293,12 @@ void checkBatteryStatus() {
       }
     }
   }
+  #endif
 }
 
 // Get battery voltage
 float getBatteryVoltage() {
+  #if ENABLE_BATTERY_MONITORING
   long total_mV = 0;
   for (int i = 0; i < BATT_SAMPLES; i++) {
     total_mV += analogReadMilliVolts(BATTERY_PIN);
@@ -287,11 +306,18 @@ float getBatteryVoltage() {
   }
   float avg_mV = total_mV / BATT_SAMPLES;
   return (avg_mV * 2) / 1000.0;  // Compensate for onboard voltage divider
+  #else
+  return 4.0; // Return a default value when disabled
+  #endif
 }
 
 // Check if battery is low
 bool isLowBattery() {
+  #if ENABLE_BATTERY_MONITORING
   return batteryPercentage < 50;
+  #else
+  return false; // Never report low battery when monitoring is disabled
+  #endif
 }
 
 // Start configuration mode with AP and captive portal
@@ -493,7 +519,11 @@ bool sendWebhook() {
                    "IP Address: " + ipAddr + "\\n" +
                    "MAC Address: " + macAddr + "\\n" +
                    "WiFi Signal: " + String(rssi) + " dBm (" + signalQuality + ")\\n" +
+                   #if ENABLE_BATTERY_MONITORING
                    "Battery: " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)\\n" +
+                   #else
+                   "Battery: Not installed\\n" +
+                   #endif
                    "Time: " + timeStr + " seconds since boot";
   
   String titleText = "PANIC ALARM TRIGGERED";
@@ -519,7 +549,11 @@ bool sendWebhook() {
                   "{\"title\":\"IP Address\",\"value\":\"" + ipAddr + "\",\"short\":true}," +
                   "{\"title\":\"MAC Address\",\"value\":\"" + macAddr + "\",\"short\":true}," +
                   "{\"title\":\"WiFi Signal\",\"value\":\"" + String(rssi) + " dBm (" + signalQuality + ")\",\"short\":true}," +
+                  #if ENABLE_BATTERY_MONITORING
                   "{\"title\":\"Battery\",\"value\":\"" + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)\",\"short\":true}," +
+                  #else
+                  "{\"title\":\"Battery\",\"value\":\"Not installed\",\"short\":true}," +
+                  #endif
                   "{\"title\":\"Time\",\"value\":\"" + timeStr + " seconds since boot\",\"short\":false}" +
                   "]}]}";
   }
@@ -539,7 +573,11 @@ bool sendWebhook() {
     jsonPayload += "{\"name\":\"IP Address\",\"value\":\"" + ipAddr + "\"},";
     jsonPayload += "{\"name\":\"MAC Address\",\"value\":\"" + macAddr + "\"},";
     jsonPayload += "{\"name\":\"WiFi Signal\",\"value\":\"" + String(rssi) + " dBm (" + signalQuality + ")\"},";
+    #if ENABLE_BATTERY_MONITORING
     jsonPayload += "{\"name\":\"Battery\",\"value\":\"" + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)\"},";
+    #else
+    jsonPayload += "{\"name\":\"Battery\",\"value\":\"Not installed\"},";
+    #endif
     jsonPayload += "{\"name\":\"Time\",\"value\":\"" + timeStr + " seconds since boot\"}";
     jsonPayload += "],\"markdown\":true}]}";
   }
@@ -553,8 +591,13 @@ bool sendWebhook() {
     jsonPayload += "\"mac_address\":\"" + macAddr + "\",";
     jsonPayload += "\"wifi_signal\":" + String(rssi) + ",";
     jsonPayload += "\"signal_quality\":\"" + signalQuality + "\",";
+    #if ENABLE_BATTERY_MONITORING
     jsonPayload += "\"battery_percentage\":" + String(batteryPercentage) + ",";
     jsonPayload += "\"battery_voltage\":" + String(batteryVoltage) + ",";
+    #else
+    jsonPayload += "\"battery_percentage\":null,";
+    jsonPayload += "\"battery_voltage\":null,";
+    #endif
     jsonPayload += "\"triggered_at\":" + timeStr + "}";
   }
   
@@ -616,7 +659,11 @@ bool sendEmailAlert() {
                    "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                    "<p><strong>WiFi Signal:</strong> " + String(rssi) + " dBm (" + signalQuality + ")</p>"
                    "<p><strong>" + webhookStatus + "</strong></p>"
+                   #if ENABLE_BATTERY_MONITORING
                    "<p><strong>Battery:</strong> " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</p>"
+                   #else
+                   "<p><strong>Battery:</strong> Not installed</p>"
+                   #endif
                    "<p><strong>Time:</strong> " + String(millis() / 1000) + " seconds since device boot</p>"
                    "</div>";
   message.html.content = htmlMsg.c_str();
@@ -691,7 +738,11 @@ bool sendLowBatteryWebhook() {
                       "\"wifi_signal\": " + String(rssi) + ","
                       "\"signal_quality\": \"" + signalQuality + "\","
                       "\"battery_voltage\": " + String(batteryVoltage) + ","
+                      #if ENABLE_BATTERY_MONITORING
                       "\"battery_percentage\": " + String(batteryPercentage) + ","
+                      #else
+                      "\"battery_percentage\": null,"
+                      #endif
                       "\"reported_at\": " + String(millis() / 1000) +
                       "}";
   
@@ -743,9 +794,15 @@ bool sendLowBatteryEmail() {
                    "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
                    "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
                    "<p><strong>WiFi Signal:</strong> " + String(rssi) + " dBm (" + signalQuality + ")</p>"
+                   #if ENABLE_BATTERY_MONITORING
                    "<p><strong>Battery level:</strong> " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</p>"
+                   #else
+                    "<p><strong>Battery:</strong> Not installed</p>"
+                   #endif
                    + webhookStatus +
+                   #if ENABLE_BATTERY_MONITORING
                    "<p>Please replace or recharge the battery soon.</p></div>";
+                   #endif
   message.html.content = htmlMsg.c_str();
   
   if (!smtp.connect(&session)) {
@@ -927,9 +984,13 @@ void blinkLED(int times, int delayms) {
 
 // Enter deep sleep mode to save battery
 void goToDeepSleep() {
+  #if ENABLE_DEEP_SLEEP
   Serial.println("Going to deep sleep...");
   delay(100);
   esp_deep_sleep_start();
+  #else
+  Serial.println("Deep sleep is disabled. Continuing normal operation.");
+  #endif
 }
 
 // Web handlers
@@ -1191,12 +1252,14 @@ void handleNormalRoot() {
                 + wifiSvg +
                 "<span class=\"tooltip-text\">Signal: " + signalQuality + " (" + String(rssi) + " dBm)</span>"
                 "</div>"
+                #if ENABLE_BATTERY_MONITORING
                 "<div class='tooltip'>"
                 "<div class='battery-icon'>"
                 "<div class='battery-level' style='width:" + String(batteryPercentage) + "%; background-color:" + batteryColor + ";'></div>"
                 "</div>"
                 "<span class=\"tooltip-text\">Battery: " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</span>"
                 "</div>"
+                #endif
                 "</div>"
                 "</div>"
                 "<p>Device is operational and monitoring for panic button presses.</p>"
