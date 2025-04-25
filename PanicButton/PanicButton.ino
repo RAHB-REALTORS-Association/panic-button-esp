@@ -1401,7 +1401,6 @@ void handleRoot() {
                 "</svg>"
                 "<div>"
                 "<h1>Panic Alarm Setup</h1>"
-                "<p class='version'>Version " + firmwareVersion + "</p>"
                 "</div>"
                 "</div>"
                 "</div>"
@@ -1720,7 +1719,6 @@ void handleConfigPage() {
                 "</svg>"
                 "<div>"
                 "<h1>Update Configuration</h1>"
-                "<p class='version'>Version " + firmwareVersion + "</p>" // Show firmware version
                 "</div>"
                 "</div>"
                 "</div>"
@@ -1949,8 +1947,8 @@ void handleTestWebhook() {
             result = "Test webhook sent, but received unexpected HTTP code: " + String(httpCode) + ". Check webhook receiver.";
         }
     } else {
-        result = "Failed to send test webhook. Error: " + http.errorToString(httpCode).c_str();
-        Serial.println("Test webhook failed: " + http.errorToString(httpCode).c_str());
+        result = "Failed to send test webhook. Error: " + String(http.errorToString(httpCode));
+        Serial.println("Test webhook failed: " + String(http.errorToString(httpCode)));
     }
     http.end();
 
@@ -1994,7 +1992,6 @@ void handleReset() {
                 "</svg>"
                 "<div>"
                 "<h1>Factory Reset Confirmation</h1>"
-                "<p class='version'>Version " + firmwareVersion + "</p>"
                 "</div>"
                 "</div>"
                 "</div>"
@@ -2083,15 +2080,21 @@ void handleCheckUpdate() {
   String html = "<!DOCTYPE html><html><head>"
                 "<title>Check for Updates</title>"
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-                "<link rel='stylesheet' href='style.css'>"
-                // Only refresh if update *didn't* start, otherwise let restart handle it
-                + (updateStarted ? "" : "<meta http-equiv='refresh' content='7;url=/'>") +
-                "</head><body>"
+                "<link rel='stylesheet' href='style.css'>";
+        // Only refresh if update *didn't* start, otherwise let restart handle it
+        if (!updateStarted) {
+          html += "<meta http-equiv='refresh' content='7;url=/'>";
+        }
+        html += "</head><body>"
                 "<div class='container'>"
                 "<h1>Update Check Result</h1>"
-                "<p>" + result + "</p>"
-                + (updateStarted ? "<p>If the update is successful, the device will restart shortly.</p>" : "<p>Redirecting back to the home page in 7 seconds...</p>") +
-                "</div></body></html>";
+                "<p>" + result + "</p>";
+        if (updateStarted) {
+          html += "<p>If the update is successful, the device will restart shortly.</p>";
+        } else {
+          html += "<p>Redirecting back to the home page in 7 seconds...</p>";
+        }
+        html += "</div></body></html>";
 
   server.send(200, "text/html", html);
 }
