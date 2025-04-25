@@ -147,5 +147,7 @@ The top and bottom shells include simple interlocking features. Use supports onl
 ## 📄 License
 
 **Firmware:** GPLv3 – see [LICENSE](LICENSE) for details.
+
 **OTA Server:** AGPLv3 – see [ota-server/LICENSE](ota-server/LICENSE) for details.
+
 **Case:** MIT License – see [case/LICENSE](case/LICENSE) for details.
