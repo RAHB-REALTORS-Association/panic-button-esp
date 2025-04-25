@@ -234,4 +234,4 @@ All admin API endpoints require the `X-Admin-API-Key` header.
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the AGPL-3.0 License. See the [LICENSE](LICENSE) file for details.
