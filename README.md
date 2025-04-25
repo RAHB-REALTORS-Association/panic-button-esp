@@ -16,6 +16,7 @@ A standalone ESP32-based Wi-Fi panic button that sends email and/or webhook aler
 - [🔧 Web Interface](#-web-interface)
 - [🔋 Battery Monitoring](#-battery-monitoring)
 - [🌐 Webhook Integration](#-webhook-integration)
+- [🔄 OTA Updates](#-ota-updates)
 - [🔁 Resetting](#-resetting)
 - [🖼️ UI Preview](#️-ui-preview)
 - [🖨️ 3D-Printed Case](#️-3d-printed-case)
@@ -98,6 +99,19 @@ Webhook alerts are JSON payloads with:
 - `ip`, `mac`
 - `timestamp`
 
+## 🔄 OTA Updates
+
+This device supports automatic Over-The-Air firmware updates via the included OTA update server:
+
+- Devices check for updates periodically
+- Server verifies device identity and firmware compatibility
+- Updates are downloaded and applied automatically
+- No manual intervention required for managed devices
+
+For hosting your own OTA update server, refer to the [OTA Server README](ota-server/README.md) for complete setup and usage instructions.
+
+**Note:** OTA updates preserve all user configurations and settings.
+
 ## 🔁 Resetting
 
 Access the reset page via the web UI to:
@@ -132,5 +146,6 @@ The top and bottom shells include simple interlocking features. Use supports onl
 
 ## 📄 License
 
-**Firmware:** GPLv3 – see [LICENSE](LICENSE) for details.  
+**Firmware:** GPLv3 – see [LICENSE](LICENSE) for details.
+**OTA Server:** AGPLv3 – see [ota-server/LICENSE](ota-server/LICENSE) for details.
 **Case:** MIT License – see [case/LICENSE](case/LICENSE) for details.

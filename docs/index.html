@@ -38,10 +38,22 @@
       <div class="logo">
         <a href="#"><img src="images/logo/logo-medium.png" alt="Panic Button Logo" class="main-logo"></a>
       </div>
-      <div class="hamburger-menu">
-        <span></span>
-        <span></span>
-        <span></span>
+      <div class="nav-icons">
+        <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp" target="_blank" class="icon-btn" title="View on GitHub">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+          </svg>
+        </a>
+        <button id="dark-mode-toggle" class="icon-btn" title="Toggle Dark Mode">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
+        <div class="hamburger-menu">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
       </div>
       <div class="nav-links">
         <a href="#features">Features</a>
@@ -53,8 +65,9 @@
         <a href="#webhook">Webhook</a>
         <a href="#usage">Usage</a>
         <a href="#case">Case</a>
-        <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp" target="_blank">GitHub</a>
+        <a href="#ota-updates">OTA Updates</a>
       </div>
+      <div class="menu-overlay"></div>
     </div>
   </nav>
 
@@ -88,20 +101,12 @@
           <p>Visual battery gauge with percentage display and low battery alerts</p>
         </div>
         <div class="feature-card">
-          <h3>Web Control Panel</h3>
-          <p>Intuitive dashboard for monitoring status and updating configuration</p>
-        </div>
-        <div class="feature-card">
-          <h3>Persistent Settings</h3>
-          <p>EEPROM storage for Wi-Fi, SMTP, and webhook configurations</p>
+          <h3>OTA Updates</h3>
+          <p>Automatic Over-The-Air firmware updates for easy maintenance</p>
         </div>
         <div class="feature-card">
           <h3>Testing & Reset</h3>
           <p>Built-in functions for testing notifications and performing factory resets</p>
-        </div>
-        <div class="feature-card">
-          <h3>Mobile-Friendly</h3>
-          <p>Responsive UI that works seamlessly on smartphones and tablets</p>
         </div>
       </div>
     </section>
@@ -329,10 +334,25 @@
       </div>
     </section>
 
+    <section id="ota-updates">
+      <h2>🔄 OTA Updates</h2>
+      <p>This device supports automatic Over-The-Air firmware updates via the included OTA update server:</p>
+      
+      <ul>
+        <li><strong>Automatic Updates:</strong> Devices check for updates periodically</li>
+        <li><strong>Secure Authentication:</strong> Server verifies device identity and firmware compatibility</li>
+        <li><strong>Zero-Touch Deployment:</strong> Updates are downloaded and applied automatically</li>
+        <li><strong>Configuration Preservation:</strong> OTA updates preserve all user configurations and settings</li>
+      </ul>
+      
+      <p>For hosting your own OTA update server, refer to the <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp/tree/master/ota-server" target="_blank">OTA Server README</a> for complete setup and usage instructions.</p>
+    </section>
+
     <section id="license">
       <h2>📄 License</h2>
-      <p><strong>Firmware:</strong> The source code for this project is licensed under the GNU General Public License v3.0 (GPLv3). You are free to use, modify, and distribute it under the terms of this license. See the full <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp/blob/main/LICENSE">LICENSE</a> for more information.</p>
-      <p><strong>3D-Printed Case:</strong> The STL and 3MF files for the enclosure are licensed under the MIT License, allowing for open use and modification with attribution. See <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp/blob/main/case/LICENSE">case/LICENSE</a> for details.</p>
+      <p><strong>Firmware:</strong> The source code for this project is licensed under the GNU General Public License v3.0 (GPLv3). You are free to use, modify, and distribute it under the terms of this license. See the full <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp/blob/master/LICENSE">LICENSE</a> for more information.</p>
+      <p><strong>OTA Server:</strong> The OTA server code is licensed under the GNU Affero General Public License v3.0 (AGPLv3). You are free to use, modify, and distribute it under the terms of this license. See the full <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp/blob/master/ota-server/LICENSE">ota-server/LICENSE</a> for more information.</p>
+      <p><strong>3D-Printed Case:</strong> The STL and 3MF files for the enclosure are licensed under the MIT License, allowing for open use and modification with attribution. See <a href="https://github.com/RAHB-REALTORS-Association/panic-button-esp/blob/master/case/LICENSE">case/LICENSE</a> for details.</p>
     </section>
   </main>
 
