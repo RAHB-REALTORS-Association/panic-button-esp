@@ -70,7 +70,7 @@ String hardwarePlatform = ""; // Store hardware platform info
 int rssi = 0;                 // WiFi signal strength in dBm
 String signalQuality = "";    // Signal quality rating
 unsigned long lastWifiCheck = 0; // Last time WiFi signal was checked
-String firmwareVersion = "1.2.0"; // Firmware version - <<<--- MAKE SURE THIS IS UPDATED WITH EACH RELEASE
+String firmwareVersion = "1.3.0"; // Firmware version - <<<--- MAKE SURE THIS IS UPDATED WITH EACH RELEASE
 
 // OTA update variables
 unsigned long lastOtaCheck = 0;
