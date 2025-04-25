@@ -70,7 +70,7 @@ String hardwarePlatform = ""; // Store hardware platform info
 int rssi = 0;                 // WiFi signal strength in dBm
 String signalQuality = "";    // Signal quality rating
 unsigned long lastWifiCheck = 0; // Last time WiFi signal was checked
-String firmwareVersion = "1.3.0"; // Firmware version - <<<--- MAKE SURE THIS IS UPDATED WITH EACH RELEASE
+String firmwareVersion = "1.3.1"; // Firmware version - <<<--- MAKE SURE THIS IS UPDATED WITH EACH RELEASE
 
 // OTA update variables
 unsigned long lastOtaCheck = 0;
@@ -1915,9 +1915,10 @@ void handleTestWebhook() {
   String result;
   if (webhook_enabled) {
     Serial.println("Sending test webhook...");
-    // Use a slightly different payload for test webhooks
+    
     HTTPClient http;
-     // Ensure URL has protocol
+    
+    // Ensure URL has protocol
     if (webhook_url.startsWith("http://") || webhook_url.startsWith("https://")) {
         http.begin(webhook_url);
     } else {
@@ -1926,16 +1927,54 @@ void handleTestWebhook() {
     }
     http.addHeader("Content-Type", "application/json");
 
-    String jsonPayload = "{"
-                      "\"event\": \"TEST_NOTIFICATION\","
-                      "\"message\": \"This is a test notification from your Panic Alarm device.\","
-                      "\"device_id\": \"" + configSSID + "\","
-                      "\"hardware\": \"" + hardwarePlatform + "\","
-                      "\"location\": \"" + (device_location.length() > 0 ? device_location : "Not specified") + "\","
-                      "\"ip_address\": \"" + WiFi.localIP().toString() + "\","
-                      "\"mac_address\": \"" + WiFi.macAddress() + "\""
-                      "}";
+    // Determine service type from URL and format accordingly
+    String jsonPayload;
+    
+    if (webhook_url.indexOf("discord.com") > 0) {
+        // Discord webhook format
+        jsonPayload = "{\"content\":\"📢 **TEST NOTIFICATION** 📢\\nThis is a test message from your Panic Alarm device.\",\"embeds\":[{\"title\":\"Panic Alarm Test\",\"color\":3447003,\"description\":\"Device ID: " + configSSID + "\\nLocation: " + (device_location.length() > 0 ? device_location : "Not specified") + "\"}]}";
+    }
+    else if (webhook_url.indexOf("chat.googleapis.com") > 0) {
+        // Google Chat webhook format  
+        jsonPayload = "{\"text\":\"📢 *TEST NOTIFICATION* 📢\\nThis is a test message from your Panic Alarm device.\\nDevice ID: " + configSSID + "\\nLocation: " + (device_location.length() > 0 ? device_location : "Not specified") + "\"}";
+    }
+    else if (webhook_url.indexOf("hooks.slack.com") > 0) {
+        // Slack webhook format
+        jsonPayload = "{\"text\":\"📢 *TEST NOTIFICATION* 📢\",\"attachments\":[{\"color\":\"#3AA3E3\",\"fields\":[";
+        jsonPayload += "{\"title\":\"Device ID\",\"value\":\"" + configSSID + "\",\"short\":true},";
+        jsonPayload += "{\"title\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\",\"short\":true},";
+        jsonPayload += "{\"title\":\"Location\",\"value\":\"" + (device_location.length() > 0 ? device_location : "Not specified") + "\",\"short\":true}";
+        jsonPayload += "]}]}";
+    }
+    else if (webhook_url.indexOf("webhook.office.com") > 0) {
+        // Microsoft Teams webhook format
+        jsonPayload = "{";
+        jsonPayload += "\"@type\":\"MessageCard\",";
+        jsonPayload += "\"@context\":\"http://schema.org/extensions\",";
+        jsonPayload += "\"themeColor\":\"3AA3E3\",";
+        jsonPayload += "\"summary\":\"Panic Alarm Test\",";
+        jsonPayload += "\"sections\":[{";
+        jsonPayload += "\"activityTitle\":\"📢 TEST NOTIFICATION\",";
+        jsonPayload += "\"facts\":[";
+        jsonPayload += "{\"name\":\"Device ID\",\"value\":\"" + configSSID + "\"},";
+        jsonPayload += "{\"name\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\"},";
+        jsonPayload += "{\"name\":\"Location\",\"value\":\"" + (device_location.length() > 0 ? device_location : "Not specified") + "\"}";
+        jsonPayload += "],\"markdown\":true}]}";
+    }
+    else {
+        // Generic webhook format for other services
+        jsonPayload = "{";
+        jsonPayload += "\"event\": \"TEST_NOTIFICATION\",";
+        jsonPayload += "\"message\": \"This is a test notification from your Panic Alarm device.\",";
+        jsonPayload += "\"device_id\": \"" + configSSID + "\",";
+        jsonPayload += "\"hardware\": \"" + hardwarePlatform + "\",";
+        jsonPayload += "\"location\": \"" + (device_location.length() > 0 ? device_location : "Not specified") + "\",";
+        jsonPayload += "\"ip_address\": \"" + WiFi.localIP().toString() + "\",";
+        jsonPayload += "\"mac_address\": \"" + WiFi.macAddress() + "\"";
+        jsonPayload += "}";
+    }
 
+    Serial.println("Sending test webhook payload: " + jsonPayload);
     int httpCode = http.POST(jsonPayload);
 
     if (httpCode > 0) {
@@ -1957,17 +1996,17 @@ void handleTestWebhook() {
     Serial.println("Test webhook skipped: Webhook disabled.");
   }
 
-  String html = "<!DOCTYPE html><html><head>"
-                "<title>Test Result</title>"
-                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-                "<link rel='stylesheet' href='style.css'>"
-                "<meta http-equiv='refresh' content='5;url=/'>"
-                "</head><body>"
-                "<div class='container'>"
-                "<h1>Webhook Test Result</h1>"
-                "<p>" + result + "</p>"
-                "<p>Redirecting to home page in 5 seconds...</p>"
-                "</div></body></html>";
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<title>Test Result</title>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<link rel='stylesheet' href='style.css'>";
+  html += "<meta http-equiv='refresh' content='5;url=/'>";
+  html += "</head><body>";
+  html += "<div class='container'>";
+  html += "<h1>Webhook Test Result</h1>";
+  html += "<p>" + result + "</p>";
+  html += "<p>Redirecting to home page in 5 seconds...</p>";
+  html += "</div></body></html>";
 
   server.send(200, "text/html", html);
 }
