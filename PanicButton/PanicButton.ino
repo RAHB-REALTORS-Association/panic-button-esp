@@ -4,8 +4,8 @@
 #include <EEPROM.h>
 #include <ESP_Mail_Client.h>
 #include <HTTPClient.h>
-#include <Update.h>         // Added for OTA
-#include <ArduinoJson.h>  // Added for OTA JSON parsing
+#include <Update.h>
+#include <ArduinoJson.h>
 
 // Constants
 #define EEPROM_SIZE 710
