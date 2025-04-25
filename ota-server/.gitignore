@@ -29,4 +29,5 @@ instance/
 
 # Application specific
 firmware/*.bin
+config.json
 devices.json
