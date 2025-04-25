@@ -121,7 +121,7 @@
         <li><strong>Battery Monitoring:</strong> Via ADC (GPIO 0)</li>
       </ul>
       
-      <h3 style="margin-top: 1.5rem; color: var(--dark);">Pinout Configuration</h3>
+      <h3 style="margin-top: 1.5rem; color: var(--secondary);">Pinout Configuration</h3>
       <table>
         <thead>
           <tr>
@@ -201,7 +201,7 @@
       <h2>🔋 Battery Monitoring</h2>
       <p>The device includes comprehensive battery monitoring with visual feedback:</p>
       
-      <h3 style="margin-top: 1rem; color: var(--dark);">Battery Gauge</h3>
+      <h3 style="margin-top: 1rem; color: var(--secondary);">Battery Gauge</h3>
       <p>The control panel displays a color-coded battery level indicator:</p>
       
       <div class="battery-gauge">
@@ -216,7 +216,7 @@
         <li><strong>Red:</strong> Low battery (below 25%)</li>
       </ul>
       
-      <h3 style="margin-top: 1rem; color: var(--dark);">Low Battery Alerts</h3>
+      <h3 style="margin-top: 1rem; color: var(--secondary);">Low Battery Alerts</h3>
       <p>When battery level drops below 50%, the device will:</p>
       <ul>
         <li>Send a low battery warning email (if email notifications are enabled)</li>
@@ -231,7 +231,7 @@
       <h2>🌐 Webhook Integration</h2>
       <p>The device can send JSON payloads to a custom URL when events occur:</p>
       
-      <h3 style="margin-top: 1rem; color: var(--dark);">Webhook Payload Example</h3>
+      <h3 style="margin-top: 1rem; color: var(--secondary);">Webhook Payload Example</h3>
       <pre><code>{
   "event": "PANIC_ALARM_TRIGGERED",
   "device_id": "PanicAlarm_AB12",
@@ -243,20 +243,20 @@
   "triggered_at": 1428
 }</code></pre>
       
-      <h3 style="margin-top: 1rem; color: var(--dark);">Event Types</h3>
+      <h3 style="margin-top: 1rem; color: var(--secondary);">Event Types</h3>
       <ul>
         <li><code>PANIC_ALARM_TRIGGERED</code> - When the panic button is pressed</li>
         <li><code>LOW_BATTERY_WARNING</code> - When battery level drops below 25%</li>
       </ul>
       
-      <h3 style="margin-top: 1rem; color: var(--dark);">Testing</h3>
+      <h3 style="margin-top: 1rem; color: var(--secondary);">Testing</h3>
       <p>You can test webhook functionality directly from the web interface using the "Test Webhook" button in the control panel.</p>
     </section>
 
     <section id="usage">
       <h2>📱 Usage Instructions</h2>
       
-      <h3 style="margin-top: 1rem; color: var(--dark);">Triggering an Alert</h3>
+      <h3 style="margin-top: 1rem; color: var(--secondary);">Triggering an Alert</h3>
       <ul>
         <li><strong>Hardware Method:</strong> Press the physical button connected to GPIO 4</li>
         <li><strong>Software Methods:</strong>
@@ -267,7 +267,7 @@
         </li>
       </ul>
       
-      <h3 style="margin-top: 1rem; color: var(--dark);">Factory Reset</h3>
+      <h3 style="margin-top: 1rem; color: var(--secondary);">Factory Reset</h3>
       <p>To clear all stored settings and return to setup mode:</p>
       <ol>
         <li>Navigate to <code>http://[device-ip]/reset</code> in your browser</li>
@@ -275,7 +275,7 @@
         <li>The device will restart and create the setup access point</li>
       </ol>
       
-      <h3 style="margin-top: 1rem; color: var(--dark);">LED Status Indicators</h3>
+      <h3 style="margin-top: 1rem; color: var(--secondary);">LED Status Indicators</h3>
       <table>
         <thead>
           <tr>
