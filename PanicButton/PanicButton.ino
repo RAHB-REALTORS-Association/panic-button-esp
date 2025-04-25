@@ -70,7 +70,7 @@ String hardwarePlatform = ""; // Store hardware platform info
 int rssi = 0;                 // WiFi signal strength in dBm
 String signalQuality = "";    // Signal quality rating
 unsigned long lastWifiCheck = 0; // Last time WiFi signal was checked
-String firmwareVersion = "1.3.2"; // Firmware version - <<<--- MAKE SURE THIS IS UPDATED WITH EACH RELEASE
+String firmwareVersion = "1.3.4"; // Firmware version - <<<--- MAKE SURE THIS IS UPDATED WITH EACH RELEASE
 
 // OTA update variables
 unsigned long lastOtaCheck = 0;
@@ -2157,8 +2157,8 @@ void handleCss() {
                "}"
                "h1, h2, h3 {"
                "  color: #333;"
-               "  margin-top: 0;" // Remove default top margin
-               "  margin-bottom: 10px;"
+               "  margin-top: 0;"
+               "  margin-bottom: 0;"
                "}"
                "h1 { font-size: 1.8em; }"
                "h2 { font-size: 1.4em; color: #555; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 15px;}"
