@@ -146,7 +146,7 @@ void setup() {
   #elif defined(CONFIG_IDF_TARGET_ESP32E)
     hardwarePlatform = "FireBeetle 2 ESP32-E";
   #else
-    hardwarePlatform = "ESP32 Dev Kit";
+    hardwarePlatform = "ESP32 Dev Module";
   #endif
 
   Serial.print("Hardware Platform: ");
