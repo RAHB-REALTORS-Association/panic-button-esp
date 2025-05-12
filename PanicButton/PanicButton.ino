@@ -24,8 +24,14 @@
 
 #define ENABLE_BATTERY_MONITORING 1  // Set to 0 to disable battery monitoring
 #define ENABLE_DEEP_SLEEP 1          // Set to 0 to disable deep sleep functionality
-#define BUTTON_PIN 4                 // FireBeetle suitable GPIO pin
-#define LED_PIN 15                   // FireBeetle's onboard LED
+//#define BUTTON_PIN 0                 // ESP32 Dev Module onboard button
+//#define BUTTON_PIN 13                // ESP32 Dev Module suitable GPIO pin
+#define BUTTON_PIN 4                 // FireBeetle suitable GPIO pin (prod)
+//#define BUTTON_PIN 5                 // FireBeetle suitable GPIO pin (proto 2)
+//#define LED_PIN 2                    // ESP32 Dev Module onboard LED
+//#define LED_PIN 15                   // FireBeetle onboard LED
+#define LED_PIN 5                    // FireBeetle suitable GPIO pin (prod)
+//#define LED_PIN 23                   // FireBeetle suitable GPIO pin (proto 2)
 #define BATTERY_PIN 0                // A0 on FireBeetle ESP32-C6
 #define DNS_PORT 53
 #define WEBSERVER_PORT 80
@@ -70,7 +76,7 @@ String hardwarePlatform = ""; // Store hardware platform info
 int rssi = 0;                 // WiFi signal strength in dBm
 String signalQuality = "";    // Signal quality rating
 unsigned long lastWifiCheck = 0; // Last time WiFi signal was checked
-String firmwareVersion = "1.3.5"; // Firmware version - <<<--- MAKE SURE THIS IS UPDATED WITH EACH RELEASE
+String firmwareVersion = "1.3.7"; // Firmware version - <<<--- MAKE SURE THIS IS UPDATED WITH EACH RELEASE
 
 // OTA update variables
 unsigned long lastOtaCheck = 0;
