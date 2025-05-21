@@ -1,8 +1,12 @@
-# 🔴 ESP32 Wi-Fi Panic Button
-
 [![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE)
 
-A standalone ESP32-based Wi-Fi panic button that sends email and/or webhook alerts when pressed. Designed for rapid deployment with a captive portal-based configuration interface, suitable for non-technical environments.
+<div align="center">
+    <img src="https://raw.githubusercontent.com/RAHB-REALTORS-Association/panic-button-esp/refs/heads/master/docs/images/logo/logo-medium.png" alt="Panic Button Logo" width="200"/>
+</div>
+<div align="center">
+    <h1>🔴 ESP32 Wi-Fi Panic Button</h1>
+    <p>A standalone ESP32-based Wi-Fi panic button that sends email and/or webhook alerts when pressed. Designed for rapid deployment with a captive portal-based configuration interface, suitable for non-technical environments.</p>
+</div>
 
 ![Panic button hardware](docs/images/screenshot/panic-button.jpg)
 
