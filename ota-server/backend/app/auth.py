@@ -2,7 +2,7 @@
 Authentication and authorization for the OTA update server.
 """
 from typing import Optional
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Query
 from fastapi.security import APIKeyHeader
 from app.config import get_settings
 
@@ -41,15 +41,15 @@ async def verify_admin_api_key(api_key: str = Depends(API_KEY_HEADER)) -> bool:
     return True
 
 async def verify_device_auth(
-    auth_token: str = Depends(DEVICE_AUTH_HEADER), 
-    mac_address: Optional[str] = None
+    auth_token: str = Depends(DEVICE_AUTH_HEADER),
+    mac: str = Query(..., description="Device MAC address")
 ) -> bool:
     """
     Verify device authentication token
     
     Args:
         auth_token: Authentication token from request header
-        mac_address: MAC address from request query
+        mac: MAC address from request query parameter
         
     Returns:
         True if valid
@@ -57,16 +57,20 @@ async def verify_device_auth(
     Raises:
         HTTPException: If authentication fails
     """
-    if not auth_token or not mac_address:
+    if not auth_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required"
+            detail="Authentication header required",
+            headers={"WWW-Authenticate": "DeviceAuth"},
         )
     
     from app.utils import generate_auth_token, validate_mac_address
     from app.config import get_settings
     
     settings = get_settings()
+    
+    # Ensure MAC is properly formatted
+    mac_address = mac.upper()
     
     if not validate_mac_address(mac_address):
         raise HTTPException(
@@ -80,7 +84,8 @@ async def verify_device_auth(
     if not expected_token or auth_token.upper() != expected_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication failed"
+            detail="Authentication failed",
+            headers={"WWW-Authenticate": "DeviceAuth"},
         )
     
     return True
