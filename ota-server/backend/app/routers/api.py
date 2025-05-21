@@ -1,7 +1,8 @@
 """
+Minimal API router for ESP32 device compatibility.
 Provides essential endpoints for OTA update checking and firmware downloading.
 """
-from fastapi import APIRouter, Request, Depends, HTTPException, status
+from fastapi import APIRouter, Request, Depends, HTTPException, status, Query
 from fastapi.responses import JSONResponse, FileResponse
 from datetime import datetime
 import os
@@ -20,30 +21,26 @@ router = APIRouter()
 @router.get("/api/firmware", response_model=UpdateCheckResponse)
 async def check_firmware_update(
     request: Request,
-    device_id: str,
-    hardware: str,
-    version: str,
-    mac: str,
+    device_id: str = Query(..., description="Device identifier"),
+    hardware: str = Query(..., description="Hardware version"),
+    version: str = Query(..., description="Current firmware version"),
     authenticated: bool = Depends(verify_device_auth)
 ):
     """
     Handles firmware update check requests from ESP32 devices.
+    
+    The 'mac' parameter is used by the verify_device_auth dependency
+    and doesn't need to be explicitly declared again here.
     """
-    # Ensure MAC is uppercase
-    mac_address = mac.upper()
+    # Extract MAC from query params (already validated by the auth dependency)
+    mac_address = request.query_params.get('mac', '').upper()
     timestamp = datetime.now().isoformat()
     
     # Basic validation
-    if not all([device_id, hardware, version, mac_address]):
+    if not all([device_id, hardware, version]):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing required parameters"
-        )
-    
-    if not validate_mac_address(mac_address):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid MAC address format"
         )
     
     if not validate_version(version):
