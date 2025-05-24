@@ -99,7 +99,7 @@ bool sendEmailAlert();
 bool sendLowBatteryAlert();
 bool sendLowBatteryWebhook();
 bool sendLowBatteryEmail();
-void sendSetupCompleteNotification(); // Added forward declaration
+void sendSetupCompleteAlert(); // Added forward declaration
 float getBatteryVoltage();
 bool isLowBattery();
 void checkBatteryStatus();
@@ -860,7 +860,7 @@ bool sendLowBatteryEmail() {
 // Sends notifications (email and/or webhook) after the device setup is completed.
 // This function is called from handleSetup() after new settings are saved and before the device restarts.
 // It attempts to connect to WiFi using the new credentials first.
-void sendSetupCompleteNotification() {
+void sendSetupCompleteAlert() {
   Serial.println("Attempting to send setup complete notifications...");
   bool notificationSent = false;
 
@@ -1709,8 +1709,8 @@ void handleSetup() {
   server.send(200, "text/html", html);
 
   // Send setup complete notification before restarting
-  Serial.println("Calling sendSetupCompleteNotification from handleSetup...");
-  sendSetupCompleteNotification();
+  Serial.println("Calling sendSetupCompleteAlert from handleSetup...");
+  sendSetupCompleteAlert();
   
   // Wait a bit and then restart
   Serial.println("Restarting device after setup...");
