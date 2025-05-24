@@ -99,6 +99,7 @@ bool sendEmailAlert();
 bool sendLowBatteryAlert();
 bool sendLowBatteryWebhook();
 bool sendLowBatteryEmail();
+void sendSetupCompleteNotification(); // Added forward declaration
 float getBatteryVoltage();
 bool isLowBattery();
 void checkBatteryStatus();
@@ -669,12 +670,22 @@ bool sendEmailAlert() {
   ESP_Mail_Session session;
   session.server.host_name = email_server.c_str();
   session.server.port = email_port;
-  session.login.email = email_username.c_str();
-  session.login.password = email_password.c_str();
+  // Default sender email
+  String senderEmail = email_username.c_str();
+
+  // SendGrid uses "apikey" as username and the API key as password.
+  // The actual sender email is set in message.sender.email (senderEmail variable).
+  if (email_server == "smtp.sendgrid.net") {
+    session.login.email = "apikey"; // For SendGrid, the login username is literally "apikey"
+    Serial.println("Using SendGrid: login email set to 'apikey'. Sender email will be original username.");
+  } else {
+    session.login.email = email_username.c_str(); // For other SMTP servers, use the provided username
+  }
+  session.login.password = email_password.c_str(); // Password is used as is (for SendGrid, this is the API Key)
   
   SMTP_Message message;
   message.sender.name = "Panic Alarm";
-  message.sender.email = email_username.c_str();
+  message.sender.email = senderEmail.c_str(); // The 'From' address visible to the recipient
   message.subject = "PANIC ALARM TRIGGERED";
   message.addRecipient("User", email_recipient.c_str());
   
@@ -844,6 +855,163 @@ bool sendLowBatteryEmail() {
   }
   
   return true;
+}
+
+// Sends notifications (email and/or webhook) after the device setup is completed.
+// This function is called from handleSetup() after new settings are saved and before the device restarts.
+// It attempts to connect to WiFi using the new credentials first.
+void sendSetupCompleteNotification() {
+  Serial.println("Attempting to send setup complete notifications...");
+  bool notificationSent = false;
+
+  // Attempt to connect to WiFi with new credentials before sending notifications.
+  // This is important because the WiFi credentials might have just been updated.
+  // Global wifi_ssid and wifi_password (updated by saveConfig) are used by connectToWiFi().
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected for setup notification. Attempting to connect with new settings...");
+    // Temporarily disconnect if in AP mode or connected to an old/different network
+    if (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA) {
+        WiFi.softAPdisconnect(true); // Disconnect from AP mode
+        WiFi.disconnect(true);       // Disconnect from any STA connection
+        delay(100);
+    } else if (WiFi.status() == WL_CONNECTED) {
+        WiFi.disconnect(true);       // Disconnect from current STA connection
+        delay(100);
+    }
+    
+    if (!connectToWiFi()) { 
+      Serial.println("Failed to connect to WiFi with new settings. Cannot send setup complete notifications.");
+      return; // Exit if cannot connect, as notifications cannot be sent.
+    }
+    Serial.println("Successfully connected to WiFi with new settings for setup notification.");
+  }
+
+  // Try to send "Setup Complete" email if enabled
+  if (email_enabled && email_server.length() > 0 && email_recipient.length() > 0) {
+    Serial.println("Sending setup complete email notification...");
+    ESP_Mail_Session session;
+    session.server.host_name = email_server.c_str();
+    session.server.port = email_port;
+    String senderEmail = email_username.c_str(); // This will be the 'From' address in the email
+
+    // Handle SendGrid specific login
+    if (email_server == "smtp.sendgrid.net") {
+      session.login.email = "apikey"; // SendGrid uses "apikey" as the login username
+      Serial.println("Using SendGrid for setup complete email: login email set to 'apikey'.");
+    } else {
+      session.login.email = email_username.c_str(); // Standard SMTP login
+    }
+    session.login.password = email_password.c_str(); // SMTP password (or API Key for SendGrid)
+
+    SMTP_Message message;
+    message.sender.name = "Panic Alarm";
+    message.sender.email = senderEmail.c_str();
+    message.subject = "Panic Alarm - Setup Complete";
+    message.addRecipient("User", email_recipient.c_str());
+    String htmlMsg = "<div style='color:green;'><h1>Setup Complete!</h1>"
+                     "<p>Your Panic Alarm device has been successfully configured.</p>"
+                     "<p><strong>Device ID:</strong> " + configSSID + "</p>"
+                     "<p><strong>Hardware:</strong> " + hardwarePlatform + "</p>"
+                     "<p><strong>Location:</strong> " + (device_location.length() > 0 ? device_location : "Not specified") + "</p>"
+                     "<p><strong>WiFi SSID:</strong> " + wifi_ssid + "</p>"
+                     "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
+                     "<p>It will now restart and operate with these settings.</p></div>";
+    message.html.content = htmlMsg.c_str();
+
+    if (!smtp.connect(&session)) {
+      Serial.println("Failed to connect to SMTP server for setup complete email.");
+    } else {
+      if (!MailClient.sendMail(&smtp, &message)) {
+        Serial.println("Failed to send setup complete email: " + smtp.errorReason());
+      } else {
+        Serial.println("Setup complete email sent successfully.");
+        notificationSent = true;
+      }
+    }
+  }
+
+  // Try to send webhook if enabled
+  if (webhook_enabled && webhook_url.length() > 0) {
+    Serial.println("Sending setup complete webhook notification...");
+    HTTPClient http;
+    String targetUrl = webhook_url;
+    if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+        targetUrl = "https://" + targetUrl;
+    }
+    http.begin(targetUrl);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("User-Agent", "ESP32PanicAlarm/1.0");
+
+    String location = device_location.length() > 0 ? device_location : "Not specified";
+    location.replace("\"", "\\\"");
+    location.replace("\\", "\\\\");
+    String deviceId = configSSID;
+    deviceId.replace("\"", "\\\"");
+
+    String titleText = "PANIC ALARM - SETUP COMPLETE";
+    String msgBody = "Device ID: " + deviceId + "\\n" +
+                     "Hardware: " + hardwarePlatform + "\\n" +
+                     "Location: " + location + "\\n" +
+                     "WiFi SSID: " + wifi_ssid + "\\n" +
+                     "IP Address: " + WiFi.localIP().toString();
+    String jsonPayload;
+
+    // Determine service type from URL
+    if (webhook_url.indexOf("discord.com") > 0) {
+        jsonPayload = "{\"content\":\"✅ **" + titleText + "** ✅\\n" + msgBody + "\",\"embeds\":[{\"title\":\"Setup Successful\",\"color\":3066993,\"description\":\"The Panic Alarm device has been configured successfully.\"}]}";
+    } else if (webhook_url.indexOf("chat.googleapis.com") > 0) {
+        jsonPayload = "{\"text\":\"✅ *" + titleText + "* ✅\\n" + msgBody + "\"}";
+    } else if (webhook_url.indexOf("hooks.slack.com") > 0) {
+        jsonPayload = "{\"text\":\"✅ *" + titleText + "* ✅\",\"attachments\":[{\"color\":\"#2ECC71\",\"fields\":[" +
+                      "{\"title\":\"Device ID\",\"value\":\"" + deviceId + "\",\"short\":true}," +
+                      "{\"title\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\",\"short\":true}," +
+                      "{\"title\":\"Location\",\"value\":\"" + location + "\",\"short\":true}," +
+                      "{\"title\":\"WiFi SSID\",\"value\":\"" + wifi_ssid + "\",\"short\":true}," +
+                      "{\"title\":\"IP Address\",\"value\":\"" + WiFi.localIP().toString() + "\",\"short\":true}" +
+                      "]}]}";
+    } else if (webhook_url.indexOf("webhook.office.com") > 0) {
+        jsonPayload = "{";
+        jsonPayload += "\"@type\":\"MessageCard\",";
+        jsonPayload += "\"@context\":\"http://schema.org/extensions\",";
+        jsonPayload += "\"themeColor\":\"2ECC71\","; // Green
+        jsonPayload += "\"summary\":\"" + titleText + "\",";
+        jsonPayload += "\"sections\":[{";
+        jsonPayload += "\"activityTitle\":\"✅ " + titleText + "\",";
+        jsonPayload += "\"facts\":[";
+        jsonPayload += "{\"name\":\"Device ID\",\"value\":\"" + deviceId + "\"},";
+        jsonPayload += "{\"name\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\"},";
+        jsonPayload += "{\"name\":\"Location\",\"value\":\"" + location + "\"},";
+        jsonPayload += "{\"name\":\"WiFi SSID\",\"value\":\"" + wifi_ssid + "\"},";
+        jsonPayload += "{\"name\":\"IP Address\",\"value\":\"" + WiFi.localIP().toString() + "\"}";
+        jsonPayload += "],\"markdown\":true}]}";
+    } else { // Generic
+        jsonPayload = "{\"event\":\"" + titleText + "\",";
+        jsonPayload += "\"device_id\":\"" + deviceId + "\",";
+        jsonPayload += "\"hardware\":\"" + hardwarePlatform + "\",";
+        jsonPayload += "\"location\":\"" + location + "\",";
+        jsonPayload += "\"wifi_ssid\":\"" + wifi_ssid + "\",";
+        jsonPayload += "\"ip_address\":\"" + WiFi.localIP().toString() + "\",";
+        jsonPayload += "\"message\":\"Device configured successfully.\"}";
+    }
+    
+    Serial.println("Sending setup complete webhook payload: " + jsonPayload);
+    int httpCode = http.POST(jsonPayload);
+    if (httpCode > 0) {
+      Serial.printf("Setup complete webhook sent. HTTP Code: %d\n", httpCode);
+      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_ACCEPTED || httpCode == HTTP_CODE_NO_CONTENT) {
+        notificationSent = true;
+      }
+    } else {
+      Serial.printf("Failed to send setup complete webhook. Error: %s\n", http.errorToString(httpCode).c_str());
+    }
+    http.end();
+  }
+
+  if (notificationSent) {
+    Serial.println("Setup complete notification(s) sent.");
+  } else {
+    Serial.println("No setup complete notifications were sent (either disabled or failed).");
+  }
 }
 
 // Check for firmware updates
@@ -1539,9 +1707,14 @@ void handleSetup() {
                 "</div></body></html>";
   
   server.send(200, "text/html", html);
+
+  // Send setup complete notification before restarting
+  Serial.println("Calling sendSetupCompleteNotification from handleSetup...");
+  sendSetupCompleteNotification();
   
   // Wait a bit and then restart
-  delay(2000);
+  Serial.println("Restarting device after setup...");
+  delay(2000); // Delay to allow notifications to be sent and page to load
   ESP.restart();
 }
 
@@ -1871,18 +2044,52 @@ void handleTestEmail() {
     ESP_Mail_Session session;
     session.server.host_name = email_server.c_str();
     session.server.port = email_port;
-    session.login.email = email_username.c_str();
-    session.login.password = email_password.c_str();
+    // Default sender email
+    String senderEmail = email_username.c_str();
+
+    // SendGrid uses "apikey" as username and the API key as password.
+    // SendGrid uses "apikey" as username and the API key as password.
+    // The actual sender email ('From' address) is set in message.sender.email.
+    if (email_server == "smtp.sendgrid.net") {
+      session.login.email = "apikey"; // For SendGrid, the login username is "apikey"
+      Serial.println("Using SendGrid for test email: login email set to 'apikey'. Sender email will be original username.");
+    } else {
+      session.login.email = email_username.c_str(); // For other SMTPs, use the configured username
+    }
+    session.login.password = email_password.c_str(); // Password or API Key for SendGrid
 
     SMTP_Message message;
     message.sender.name = "Panic Alarm (Test)";
-    message.sender.email = email_username.c_str();
-    message.subject = "Panic Alarm - TEST EMAIL";
+    message.sender.email = senderEmail.c_str(); // The 'From' address visible to the recipient
+    message.subject = "Panic Alarm - TEST EMAIL"; // Clearly mark as a test
     message.addRecipient("User", email_recipient.c_str());
-    message.html.content = "<p>This is a test email from your Panic Alarm device.</p>"
-                           "<p>If you received this, your email settings are likely correct.</p>"
-                           "<p><strong>Device ID:</strong> " + configSSID + "</p>"
-                           "<p><strong>Location:</strong> " + (device_location.length() > 0 ? device_location : "Not specified") + "</p>";
+
+    // Construct detailed HTML content for the test email, mirroring the actual alert.
+    // This ensures all dynamic fields are correctly populated and displayed.
+    String locationInfo = device_location.length() > 0 ? 
+                        "<p><strong>Location:</strong> " + device_location + "</p>" : 
+                        "<p><strong>Location:</strong> Not specified</p>";
+    String webhookStatus = webhook_enabled ? "<p>Webhook notifications: Enabled</p>" : "<p>Webhook notifications: Disabled</p>";
+    String batteryInfo = "";
+    #if ENABLE_BATTERY_MONITORING
+    batteryInfo = "<p><strong>Battery:</strong> " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)</p>";
+    #else
+    batteryInfo = "<p><strong>Battery:</strong> Monitoring disabled</p>";
+    #endif
+
+    String htmlMsg = "<div style='color:blue;'><h1>PANIC ALARM - TEST EMAIL</h1>" // Styled blue to visually distinguish as a test
+                     "<p>This is a test email from your Panic Alarm device. If you received this, your email settings are likely correct.</p>"
+                     "<p><strong>Device ID:</strong> " + configSSID + "</p>"
+                     "<p><strong>Hardware:</strong> " + hardwarePlatform + "</p>"
+                     + locationInfo +
+                     "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
+                     "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>"
+                     "<p><strong>WiFi Signal:</strong> " + String(rssi) + " dBm (" + signalQuality + ")</p>"
+                     + batteryInfo +
+                     "<p><strong>" + webhookStatus + "</strong></p>"
+                     "<p><strong>Time:</strong> " + String(millis() / 1000) + " seconds since device boot</p>"
+                     "</div>";
+    message.html.content = htmlMsg.c_str();
 
     if (!smtp.connect(&session)) {
        result = "Failed to connect to SMTP server. Check server/port/credentials.";
@@ -1935,49 +2142,97 @@ void handleTestWebhook() {
 
     // Determine service type from URL and format accordingly
     String jsonPayload;
+    String deviceId = configSSID;
+    deviceId.replace("\"", "\\\""); // Escape quotes for JSON
+    String location = device_location.length() > 0 ? device_location : "Not specified";
+    location.replace("\"", "\\\"");
+    location.replace("\\", "\\\\");
+    String ipAddr = WiFi.localIP().toString();
+    String macAddr = WiFi.macAddress();
+    String timeStr = String(millis() / 1000);
+
+    // Create detailed message body, similar to actual alert.
+    // This ensures all dynamic fields are correctly populated for thorough testing.
+    String msgBody = "Device ID: " + deviceId + "\\n" +
+                     "Hardware: " + hardwarePlatform + "\\n" +
+                     "Location: " + location + "\\n" +
+                     "IP Address: " + ipAddr + "\\n" +
+                     "MAC Address: " + macAddr + "\\n" +
+                     "WiFi Signal: " + String(rssi) + " dBm (" + signalQuality + ")\\n" +
+                     #if ENABLE_BATTERY_MONITORING
+                     "Battery: " + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)\\n" +
+                     #else
+                     "Battery: Not installed\\n" + // Indicate if battery monitoring is off
+                     #endif
+                     "Time: " + timeStr + " seconds since boot";
     
+    String titleText = "PANIC ALARM - TEST WEBHOOK"; // Clearly identifies this as a test webhook
+
+    // Format payload based on the webhook service type
     if (webhook_url.indexOf("discord.com") > 0) {
-        // Discord webhook format
-        jsonPayload = "{\"content\":\"📢 **TEST NOTIFICATION** 📢\\nThis is a test message from your Panic Alarm device.\",\"embeds\":[{\"title\":\"Panic Alarm Test\",\"color\":3447003,\"description\":\"Device ID: " + configSSID + "\\nLocation: " + (device_location.length() > 0 ? device_location : "Not specified") + "\"}]}";
+        jsonPayload = "{\"content\":\"📢 **" + titleText + "** 📢\\n" + msgBody + 
+                      "\",\"embeds\":[{\"title\":\"Panic Alarm Test Notification\",\"color\":3447003,\"description\":\"This is a detailed test notification. All systems nominal.\"}]}";
     }
     else if (webhook_url.indexOf("chat.googleapis.com") > 0) {
-        // Google Chat webhook format  
-        jsonPayload = "{\"text\":\"📢 *TEST NOTIFICATION* 📢\\nThis is a test message from your Panic Alarm device.\\nDevice ID: " + configSSID + "\\nLocation: " + (device_location.length() > 0 ? device_location : "Not specified") + "\"}";
+        jsonPayload = "{\"text\":\"📢 *" + titleText + "* 📢\\n" + msgBody + "\"}";
     }
     else if (webhook_url.indexOf("hooks.slack.com") > 0) {
-        // Slack webhook format
-        jsonPayload = "{\"text\":\"📢 *TEST NOTIFICATION* 📢\",\"attachments\":[{\"color\":\"#3AA3E3\",\"fields\":[";
-        jsonPayload += "{\"title\":\"Device ID\",\"value\":\"" + configSSID + "\",\"short\":true},";
-        jsonPayload += "{\"title\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\",\"short\":true},";
-        jsonPayload += "{\"title\":\"Location\",\"value\":\"" + (device_location.length() > 0 ? device_location : "Not specified") + "\",\"short\":true}";
-        jsonPayload += "]}]}";
+        jsonPayload = "{\"text\":\"📢 *" + titleText + "* 📢\",\"attachments\":[{\"color\":\"#3AA3E3\",\"fields\":[" +
+                      "{\"title\":\"Device ID\",\"value\":\"" + deviceId + "\",\"short\":true}," +
+                      "{\"title\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\",\"short\":true}," +
+                      "{\"title\":\"Location\",\"value\":\"" + location + "\",\"short\":true}," +
+                      "{\"title\":\"IP Address\",\"value\":\"" + ipAddr + "\",\"short\":true}," +
+                      "{\"title\":\"MAC Address\",\"value\":\"" + macAddr + "\",\"short\":true}," +
+                      "{\"title\":\"WiFi Signal\",\"value\":\"" + String(rssi) + " dBm (" + signalQuality + ")\",\"short\":true}," +
+                      #if ENABLE_BATTERY_MONITORING
+                      "{\"title\":\"Battery\",\"value\":\"" + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)\",\"short\":true}," +
+                      #else
+                      "{\"title\":\"Battery\",\"value\":\"Not installed\",\"short\":true}," +
+                      #endif
+                      "{\"title\":\"Time\",\"value\":\"" + timeStr + " seconds since boot\",\"short\":false}" +
+                      "]}]}";
     }
     else if (webhook_url.indexOf("webhook.office.com") > 0) {
-        // Microsoft Teams webhook format
         jsonPayload = "{";
         jsonPayload += "\"@type\":\"MessageCard\",";
         jsonPayload += "\"@context\":\"http://schema.org/extensions\",";
-        jsonPayload += "\"themeColor\":\"3AA3E3\",";
-        jsonPayload += "\"summary\":\"Panic Alarm Test\",";
+        jsonPayload += "\"themeColor\":\"3AA3E3\","; // Blue for test
+        jsonPayload += "\"summary\":\"" + titleText + "\",";
         jsonPayload += "\"sections\":[{";
-        jsonPayload += "\"activityTitle\":\"📢 TEST NOTIFICATION\",";
+        jsonPayload += "\"activityTitle\":\"📢 " + titleText + "\",";
         jsonPayload += "\"facts\":[";
-        jsonPayload += "{\"name\":\"Device ID\",\"value\":\"" + configSSID + "\"},";
+        jsonPayload += "{\"name\":\"Device ID\",\"value\":\"" + deviceId + "\"},";
         jsonPayload += "{\"name\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\"},";
-        jsonPayload += "{\"name\":\"Location\",\"value\":\"" + (device_location.length() > 0 ? device_location : "Not specified") + "\"}";
+        jsonPayload += "{\"name\":\"Location\",\"value\":\"" + location + "\"},";
+        jsonPayload += "{\"name\":\"IP Address\",\"value\":\"" + ipAddr + "\"},";
+        jsonPayload += "{\"name\":\"MAC Address\",\"value\":\"" + macAddr + "\"},";
+        jsonPayload += "{\"name\":\"WiFi Signal\",\"value\":\"" + String(rssi) + " dBm (" + signalQuality + ")\"},";
+        #if ENABLE_BATTERY_MONITORING
+        jsonPayload += "{\"name\":\"Battery\",\"value\":\"" + String(batteryPercentage) + "% (" + String(batteryVoltage) + "V)\"},";
+        #else
+        jsonPayload += "{\"name\":\"Battery\",\"value\":\"Not installed\"},";
+        #endif
+        jsonPayload += "{\"name\":\"Time\",\"value\":\"" + timeStr + " seconds since boot\"}";
         jsonPayload += "],\"markdown\":true}]}";
     }
-    else {
-        // Generic webhook format for other services
-        jsonPayload = "{";
-        jsonPayload += "\"event\": \"TEST_NOTIFICATION\",";
-        jsonPayload += "\"message\": \"This is a test notification from your Panic Alarm device.\",";
-        jsonPayload += "\"device_id\": \"" + configSSID + "\",";
-        jsonPayload += "\"hardware\": \"" + hardwarePlatform + "\",";
-        jsonPayload += "\"location\": \"" + (device_location.length() > 0 ? device_location : "Not specified") + "\",";
-        jsonPayload += "\"ip_address\": \"" + WiFi.localIP().toString() + "\",";
-        jsonPayload += "\"mac_address\": \"" + WiFi.macAddress() + "\"";
-        jsonPayload += "}";
+    else { // Generic webhook
+        jsonPayload = "{\"event\":\"TEST_NOTIFICATION\","; // Clearly a test event
+        jsonPayload += "\"device_id\":\"" + deviceId + "\",";
+        jsonPayload += "\"hardware\":\"" + hardwarePlatform + "\",";
+        jsonPayload += "\"location\":\"" + location + "\",";
+        jsonPayload += "\"ip_address\":\"" + ipAddr + "\",";
+        jsonPayload += "\"mac_address\":\"" + macAddr + "\",";
+        jsonPayload += "\"wifi_signal\":" + String(rssi) + ",";
+        jsonPayload += "\"signal_quality\":\"" + signalQuality + "\",";
+        #if ENABLE_BATTERY_MONITORING
+        jsonPayload += "\"battery_percentage\":" + String(batteryPercentage) + ",";
+        jsonPayload += "\"battery_voltage\":" + String(batteryVoltage) + ",";
+        #else
+        jsonPayload += "\"battery_percentage\":null,"; // Keep fields consistent
+        jsonPayload += "\"battery_voltage\":null,";
+        #endif
+        jsonPayload += "\"time\":" + timeStr + ","; // Changed from triggered_at for clarity, but value is the same
+        jsonPayload += "\"message\":\"This is a detailed test notification from your Panic Alarm device.\"}";
     }
 
     Serial.println("Sending test webhook payload: " + jsonPayload);
