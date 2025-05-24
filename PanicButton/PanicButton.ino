@@ -35,6 +35,7 @@
 #define BATTERY_PIN 0                // A0 on FireBeetle ESP32-C6
 #define DNS_PORT 53
 #define WEBSERVER_PORT 80
+#define SENDGRID_HOST "smtp.sendgrid.net"
 #define CONFIG_FLAG 0xAA
 #define uS_TO_S_FACTOR 1000000       // Conversion factor for micro seconds to seconds
 #define TIME_TO_SLEEP  60            // Time ESP32 will sleep (in seconds)
@@ -675,7 +676,7 @@ bool sendEmailAlert() {
 
   // SendGrid uses "apikey" as username and the API key as password.
   // The actual sender email is set in message.sender.email (senderEmail variable).
-  if (email_server == "smtp.sendgrid.net") {
+  if (email_server == SENDGRID_HOST) {
     session.login.email = "apikey"; // For SendGrid, the login username is literally "apikey"
     Serial.println("Using SendGrid: login email set to 'apikey'. Sender email will be original username.");
   } else {
@@ -895,7 +896,7 @@ void sendSetupCompleteAlert() {
     String senderEmail = email_username.c_str(); // This will be the 'From' address in the email
 
     // Handle SendGrid specific login
-    if (email_server == "smtp.sendgrid.net") {
+    if (email_server == SENDGRID_HOST) {
       session.login.email = "apikey"; // SendGrid uses "apikey" as the login username
       Serial.println("Using SendGrid for setup complete email: login email set to 'apikey'.");
     } else {
@@ -2050,7 +2051,7 @@ void handleTestEmail() {
     // SendGrid uses "apikey" as username and the API key as password.
     // SendGrid uses "apikey" as username and the API key as password.
     // The actual sender email ('From' address) is set in message.sender.email.
-    if (email_server == "smtp.sendgrid.net") {
+    if (email_server == SENDGRID_HOST) {
       session.login.email = "apikey"; // For SendGrid, the login username is "apikey"
       Serial.println("Using SendGrid for test email: login email set to 'apikey'. Sender email will be original username.");
     } else {
