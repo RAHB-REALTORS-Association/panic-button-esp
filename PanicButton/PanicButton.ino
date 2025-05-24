@@ -100,7 +100,7 @@ bool sendEmailAlert();
 bool sendLowBatteryAlert();
 bool sendLowBatteryWebhook();
 bool sendLowBatteryEmail();
-void sendSetupCompleteAlert(); // Added forward declaration
+void sendSetupCompleteAlert();
 float getBatteryVoltage();
 bool isLowBattery();
 void checkBatteryStatus();
@@ -114,7 +114,7 @@ bool checkForUpdates();
 String generateAuthToken();
 bool downloadAndUpdate(String firmwareUrl, String expectedChecksum);
 String urlEncode(String str);
-int compareVersions(String v1, String v2); // Although defined, not used in client logic from plan
+int compareVersions(String v1, String v2);
 
 // Web handlers
 void handleRoot();
@@ -126,7 +126,7 @@ void handleTestEmail();
 void handleTestWebhook();
 void handleReset();
 void handleCss();
-void handleCheckUpdate(); // Added for OTA
+void handleCheckUpdate();
 
 WebServer server(WEBSERVER_PORT);
 DNSServer dnsServer;
