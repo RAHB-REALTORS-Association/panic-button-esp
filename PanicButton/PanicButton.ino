@@ -24,6 +24,11 @@
 
 #define ENABLE_BATTERY_MONITORING 1  // Set to 0 to disable battery monitoring
 #define ENABLE_DEEP_SLEEP 1          // Set to 0 to disable deep sleep functionality
+
+// Option to send a notification when the device restarts and connects to WiFi
+// Set to 0 or comment out to disable this notification.
+#define SEND_NOTIFICATION_ON_RESTART 1 
+
 //#define BUTTON_PIN 0                 // ESP32 Dev Module onboard button
 //#define BUTTON_PIN 13                // ESP32 Dev Module suitable GPIO pin
 #define BUTTON_PIN 4                 // FireBeetle suitable GPIO pin (prod)
@@ -100,7 +105,7 @@ bool sendEmailAlert();
 bool sendLowBatteryAlert();
 bool sendLowBatteryWebhook();
 bool sendLowBatteryEmail();
-void sendSetupCompleteAlert();
+void sendDeviceReadyNotification();
 float getBatteryVoltage();
 bool isLowBattery();
 void checkBatteryStatus();
@@ -200,6 +205,14 @@ void setup() {
       Serial.println("Connected to WiFi. Starting normal operation.");
       checkWiFiSignal(); // Get initial signal strength
       blinkLED(3, 200);
+      #if defined(SEND_NOTIFICATION_ON_RESTART) && SEND_NOTIFICATION_ON_RESTART == 1
+        if (WiFi.status() == WL_CONNECTED) { // Ensure WiFi is still connected
+          Serial.println("Sending device ready notification...");
+          sendDeviceReadyNotification();
+        } else {
+          Serial.println("WiFi not connected, skipping device ready notification.");
+        }
+      #endif
     } else {
       Serial.println("Failed to connect to WiFi. Starting setup mode...");
       startConfigMode();
@@ -858,38 +871,21 @@ bool sendLowBatteryEmail() {
   return true;
 }
 
-// Sends notifications (email and/or webhook) after the device setup is completed.
-// This function is called from handleSetup() after new settings are saved and before the device restarts.
-// It attempts to connect to WiFi using the new credentials first.
-void sendSetupCompleteAlert() {
-  Serial.println("Attempting to send setup complete notifications...");
+// Sends notifications (email and/or webhook) when the device is ready (e.g., after startup or setup).
+// This function is called from setup()
+void sendDeviceReadyNotification() {
+  Serial.println("Attempting to send device ready notification..."); // Singular
   bool notificationSent = false;
 
-  // Attempt to connect to WiFi with new credentials before sending notifications.
-  // This is important because the WiFi credentials might have just been updated.
-  // Global wifi_ssid and wifi_password (updated by saveConfig) are used by connectToWiFi().
+  // Ensure WiFi is connected before proceeding
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi not connected for setup notification. Attempting to connect with new settings...");
-    // Temporarily disconnect if in AP mode or connected to an old/different network
-    if (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA) {
-        WiFi.softAPdisconnect(true); // Disconnect from AP mode
-        WiFi.disconnect(true);       // Disconnect from any STA connection
-        delay(100);
-    } else if (WiFi.status() == WL_CONNECTED) {
-        WiFi.disconnect(true);       // Disconnect from current STA connection
-        delay(100);
-    }
-    
-    if (!connectToWiFi()) { 
-      Serial.println("Failed to connect to WiFi with new settings. Cannot send setup complete notifications.");
-      return; // Exit if cannot connect, as notifications cannot be sent.
-    }
-    Serial.println("Successfully connected to WiFi with new settings for setup notification.");
+    Serial.println("WiFi not connected. Cannot send device ready notification.");
+    return; 
   }
 
-  // Try to send "Setup Complete" email if enabled
+  // Try to send "Device Ready" email if enabled
   if (email_enabled && email_server.length() > 0 && email_recipient.length() > 0) {
-    Serial.println("Sending setup complete email notification...");
+    Serial.println("Sending device ready email notification...");
     ESP_Mail_Session session;
     session.server.host_name = email_server.c_str();
     session.server.port = email_port;
@@ -907,25 +903,25 @@ void sendSetupCompleteAlert() {
     SMTP_Message message;
     message.sender.name = "Panic Alarm";
     message.sender.email = senderEmail.c_str();
-    message.subject = "Panic Alarm - Setup Complete";
+    message.subject = "Panic Alarm - Device Ready"; // Updated Subject
     message.addRecipient("User", email_recipient.c_str());
-    String htmlMsg = "<div style='color:green;'><h1>Setup Complete!</h1>"
-                     "<p>Your Panic Alarm device has been successfully configured.</p>"
+    String htmlMsg = "<div style='color:green;'><h1>Device Ready</h1>" // Updated Header
+                     "<p>Your Panic Alarm device has started and is now online.</p>" // Updated Body
                      "<p><strong>Device ID:</strong> " + configSSID + "</p>"
                      "<p><strong>Hardware:</strong> " + hardwarePlatform + "</p>"
                      "<p><strong>Location:</strong> " + (device_location.length() > 0 ? device_location : "Not specified") + "</p>"
                      "<p><strong>WiFi SSID:</strong> " + wifi_ssid + "</p>"
                      "<p><strong>Device IP:</strong> " + WiFi.localIP().toString() + "</p>"
-                     "<p>It will now restart and operate with these settings.</p></div>";
+                     "<p>Current status and settings are reported below.</p></div>"; // Updated final paragraph
     message.html.content = htmlMsg.c_str();
 
     if (!smtp.connect(&session)) {
-      Serial.println("Failed to connect to SMTP server for setup complete email.");
+      Serial.println("Failed to connect to SMTP server for device ready email.");
     } else {
       if (!MailClient.sendMail(&smtp, &message)) {
-        Serial.println("Failed to send setup complete email: " + smtp.errorReason());
+        Serial.println("Failed to send device ready email: " + smtp.errorReason());
       } else {
-        Serial.println("Setup complete email sent successfully.");
+        Serial.println("Device ready email sent successfully.");
         notificationSent = true;
       }
     }
@@ -933,7 +929,7 @@ void sendSetupCompleteAlert() {
 
   // Try to send webhook if enabled
   if (webhook_enabled && webhook_url.length() > 0) {
-    Serial.println("Sending setup complete webhook notification...");
+    Serial.println("Sending device ready webhook notification..."); // Updated Serial print
     HTTPClient http;
     String targetUrl = webhook_url;
     if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
@@ -949,7 +945,7 @@ void sendSetupCompleteAlert() {
     String deviceId = configSSID;
     deviceId.replace("\"", "\\\"");
 
-    String titleText = "PANIC ALARM - SETUP COMPLETE";
+    String titleText = "PANIC ALARM - DEVICE READY"; // Updated Webhook Title
     String msgBody = "Device ID: " + deviceId + "\\n" +
                      "Hardware: " + hardwarePlatform + "\\n" +
                      "Location: " + location + "\\n" +
@@ -959,11 +955,11 @@ void sendSetupCompleteAlert() {
 
     // Determine service type from URL
     if (webhook_url.indexOf("discord.com") > 0) {
-        jsonPayload = "{\"content\":\"✅ **" + titleText + "** ✅\\n" + msgBody + "\",\"embeds\":[{\"title\":\"Setup Successful\",\"color\":3066993,\"description\":\"The Panic Alarm device has been configured successfully.\"}]}";
+        jsonPayload = "{\"content\":\"✅ **" + titleText + "** ✅\\n" + msgBody + "\",\"embeds\":[{\"title\":\"Device Online\",\"color\":3066993,\"description\":\"The Panic Alarm device has connected to the network.\"}]}";
     } else if (webhook_url.indexOf("chat.googleapis.com") > 0) {
         jsonPayload = "{\"text\":\"✅ *" + titleText + "* ✅\\n" + msgBody + "\"}";
     } else if (webhook_url.indexOf("hooks.slack.com") > 0) {
-        jsonPayload = "{\"text\":\"✅ *" + titleText + "* ✅\",\"attachments\":[{\"color\":\"#2ECC71\",\"fields\":[" +
+        jsonPayload = "{\"text\":\"✅ *" + titleText + "* ✅\",\"attachments\":[{\"color\":\"#2ECC71\",\"fields\":[" + // Slack color is fine (green for positive status)
                       "{\"title\":\"Device ID\",\"value\":\"" + deviceId + "\",\"short\":true}," +
                       "{\"title\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\",\"short\":true}," +
                       "{\"title\":\"Location\",\"value\":\"" + location + "\",\"short\":true}," +
@@ -974,10 +970,10 @@ void sendSetupCompleteAlert() {
         jsonPayload = "{";
         jsonPayload += "\"@type\":\"MessageCard\",";
         jsonPayload += "\"@context\":\"http://schema.org/extensions\",";
-        jsonPayload += "\"themeColor\":\"2ECC71\","; // Green
+        jsonPayload += "\"themeColor\":\"2ECC71\","; // Green, suitable for "Device Ready"
         jsonPayload += "\"summary\":\"" + titleText + "\",";
         jsonPayload += "\"sections\":[{";
-        jsonPayload += "\"activityTitle\":\"✅ " + titleText + "\",";
+        jsonPayload += "\"activityTitle\":\"✅ " + titleText + "\","; // titleText is already updated
         jsonPayload += "\"facts\":[";
         jsonPayload += "{\"name\":\"Device ID\",\"value\":\"" + deviceId + "\"},";
         jsonPayload += "{\"name\":\"Hardware\",\"value\":\"" + hardwarePlatform + "\"},";
@@ -986,32 +982,32 @@ void sendSetupCompleteAlert() {
         jsonPayload += "{\"name\":\"IP Address\",\"value\":\"" + WiFi.localIP().toString() + "\"}";
         jsonPayload += "],\"markdown\":true}]}";
     } else { // Generic
-        jsonPayload = "{\"event\":\"" + titleText + "\",";
+        jsonPayload = "{\"event\":\"" + titleText + "\","; // titleText is already updated
         jsonPayload += "\"device_id\":\"" + deviceId + "\",";
         jsonPayload += "\"hardware\":\"" + hardwarePlatform + "\",";
         jsonPayload += "\"location\":\"" + location + "\",";
         jsonPayload += "\"wifi_ssid\":\"" + wifi_ssid + "\",";
         jsonPayload += "\"ip_address\":\"" + WiFi.localIP().toString() + "\",";
-        jsonPayload += "\"message\":\"Device configured successfully.\"}";
+        jsonPayload += "\"message\":\"Device started and connected to network.\"}"; // Updated generic message
     }
     
-    Serial.println("Sending setup complete webhook payload: " + jsonPayload);
+    Serial.println("Sending device ready webhook payload: " + jsonPayload); // Updated Serial print
     int httpCode = http.POST(jsonPayload);
     if (httpCode > 0) {
-      Serial.printf("Setup complete webhook sent. HTTP Code: %d\n", httpCode);
+      Serial.printf("Device ready webhook sent. HTTP Code: %d\n", httpCode); // Updated Serial print
       if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_ACCEPTED || httpCode == HTTP_CODE_NO_CONTENT) {
         notificationSent = true;
       }
     } else {
-      Serial.printf("Failed to send setup complete webhook. Error: %s\n", http.errorToString(httpCode).c_str());
+      Serial.printf("Failed to send device ready webhook. Error: %s\n", http.errorToString(httpCode).c_str()); // Updated Serial print
     }
     http.end();
   }
 
   if (notificationSent) {
-    Serial.println("Setup complete notification(s) sent.");
+    Serial.println("Device ready notification(s) sent."); // Updated Serial print
   } else {
-    Serial.println("No setup complete notifications were sent (either disabled or failed).");
+    Serial.println("No device ready notifications were sent (either disabled or failed)."); // Updated Serial print
   }
 }
 
@@ -1709,10 +1705,6 @@ void handleSetup() {
   
   server.send(200, "text/html", html);
 
-  // Send setup complete notification before restarting
-  Serial.println("Calling sendSetupCompleteAlert from handleSetup...");
-  sendSetupCompleteAlert();
-  
   // Wait a bit and then restart
   Serial.println("Restarting device after setup...");
   delay(2000); // Delay to allow notifications to be sent and page to load
