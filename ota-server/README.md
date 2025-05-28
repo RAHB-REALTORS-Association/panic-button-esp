@@ -1,145 +1,80 @@
 # ESP32 OTA Update Server
 
-A Flask-based server for managing Over-The-Air (OTA) updates for ESP32 devices.
+A modern FastAPI-based server for managing Over-The-Air (OTA) updates for ESP32 devices, with a Svelte 5 frontend.
 
 ## Features
 
-- Secure device authentication
-- Version comparison for update eligibility
-- Configuration via JSON files and environment variables
-- Admin API for device management
-- Admin command-line tools
-- Firmware checksum verification
-- Detailed logging
+- **Intuitive Device Management**: Add, update, and monitor your fleet of ESP32 devices
+- **Firmware Updates**: Upload and manage firmware versions with automatic versioning
+- **Secure Authentication**: Token-based device authentication and API key protection
+- **Real-time Dashboard**: Monitor device status, update progress, and firmware inventory
+- **Modern Architecture**: FastAPI backend with Svelte 5 frontend for optimal performance
+- **Docker Deployment**: Easy setup with Docker Compose for both development and production
 
-## Directory Structure
+## Quick Start
 
-```
-ota-server/
-├── app.py                  # Main Flask application
-├── config.py               # Configuration management
-├── utils.py                # Utility functions
-├── admin_tools.py          # CLI for device management
-├── config.json             # Server configuration
-├── devices.json            # Device database
-└── firmware/               # Firmware binary files
-```
+### Prerequisites
 
-## Configuration
+- [Docker](https://docs.docker.com/get-docker/)
+- [Docker Compose](https://docs.docker.com/compose/install/)
 
-### Server Configuration
+### Setup and Run
 
-The server can be configured through:
-
-1. The `config.json` file
-2. Environment variables (prefixed with `OTA_SERVER_`)
-
-Example `config.json`:
-
-```json
-{
-  "shared_secret_key": "your-device-secret-key",
-  "server_port": 5000,
-  "server_host": "0.0.0.0",
-  "debug_mode": false,
-  "log_level": "INFO",
-  "devices_file": "devices.json",
-  "firmware_directory": "firmware",
-  "admin_api_key": "change-admin-api-key-in-production"
-}
-```
-
-Environment variable overrides:
+1. **Clone the repository**
 
 ```bash
-export OTA_SERVER_SHARED_SECRET_KEY="my-secure-key"
-export OTA_SERVER_SERVER_PORT=8080
-export OTA_SERVER_ADMIN_API_KEY="admin-api-key"
+git clone https://github.com/RAHB-REALTORS-Association/panic-button-esp.git
+cd ota-server
 ```
 
-### Device Management
-
-Devices are stored in `devices.json` with the following format:
-
-```json
-{
-  "AA:BB:CC:DD:EE:FF": {
-    "device_id": "panic_button_01",
-    "hardware_version": "1.0",
-    "target_version": "1.2.1",
-    "firmware_url": "http://example.com/firmware/PanicButton_v1.2.1.bin",
-    "checksum": "5f4dcc3b5aa765d61d8327deb882cf99",
-    "last_check": null,
-    "last_update": null
-  }
-}
-```
-
-## Setup & Running
-
-### Standard Installation
+2. **Configure environment variables**
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/ota-update-server.git
-cd ota-update-server
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Starting the Server (Standard)
-
-```bash
-python app.py
-```
-
-### Docker Installation
-
-This project includes Docker and Docker Compose files for easy deployment.
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/ota-update-server.git
-cd ota-update-server
-
-# Create .env file from example
 cp .env.example .env
-
-# Edit the .env file with your configuration
-nano .env
-
-# Start the server
-./start.sh
 ```
 
-### Using Docker Compose Manually
+Edit `.env` with your preferred settings:
+
+```
+OTA_SERVER_SHARED_SECRET_KEY=your-device-secret-key
+OTA_SERVER_ADMIN_API_KEY=your-admin-api-key
+OTA_SERVER_SERVER_PORT=5000
+OTA_SERVER_UI_PORT=80
+```
+
+3. **Start the server**
 
 ```bash
-# Start the server
+# For production
 docker-compose up -d
 
-# View logs
-docker-compose logs -f
-
-# Stop the server
-docker-compose down
+# For development with hot-reload
+docker-compose -f docker-compose.dev.yml up -d
 ```
 
-## Device Integration
+4. **Access the Dashboard**
 
-For your ESP32 device to use this OTA update server, it should:
+- Production: http://localhost
+- Development: http://localhost:3000
 
-1. Periodically check for updates using the `/api/firmware` endpoint
-2. Include device information in the request (MAC, version, etc.)
-3. Include an authentication token in the `X-Device-Auth` header
-4. Download and install the new firmware if an update is available
+## ESP32 Integration
 
-Example ESP32 code snippet for authentication:
+To use this OTA server with your ESP32 devices, configure your firmware to:
+
+1. **Check for updates** by making periodic requests to `/api/firmware`
+
+```cpp
+HTTPClient http;
+http.begin("http://your-server-ip:5000/api/firmware?device_id=device1&hardware=esp32&version=1.0.0&mac=" + WiFi.macAddress());
+http.addHeader("X-Device-Auth", generateAuthToken());
+int httpCode = http.GET();
+```
+
+2. **Generate authentication token** for secure communication
 
 ```cpp
 String generateAuthToken() {
-  // Remove colons and ensure uppercase
+  // Remove colons and convert to uppercase
   String mac = WiFi.macAddress();
   mac.replace(":", "");
   mac.toUpperCase();
@@ -160,48 +95,26 @@ String generateAuthToken() {
 }
 ```
 
-## Admin Tools
+3. **Download and install** firmware when updates are available
 
-The `admin_tools.py` script provides a command-line interface for managing devices.
+```cpp
+if (httpCode == HTTP_CODE_OK) {
+  String payload = http.getString();
+  DynamicJsonDocument doc(1024);
+  deserializeJson(doc, payload);
 
-### Standard Usage
-
-```bash
-# List all registered devices
-python admin_tools.py list
-
-# Add a new device
-python admin_tools.py add AA:BB:CC:DD:EE:FF --version 1.2.1 --firmware-file firmware/PanicButton_v1.2.1.bin
-
-# Update a device
-python admin_tools.py update AA:BB:CC:DD:EE:FF --version 1.3.0 --firmware-file firmware/PanicButton_v1.3.0.bin
-
-# View device details
-python admin_tools.py get AA:BB:CC:DD:EE:FF
-
-# Calculate firmware checksum
-python admin_tools.py checksum firmware/PanicButton_v1.2.1.bin
-
-# Delete a device
-python admin_tools.py delete AA:BB:CC:DD:EE:FF
-```
-
-### Docker Usage
-
-Use the included `manage-devices.sh` script to manage devices when running in Docker:
-
-```bash
-# Make the script executable
-chmod +x manage-devices.sh
-
-# List all registered devices
-./manage-devices.sh list
-
-# Add a new device
-./manage-devices.sh add AA:BB:CC:DD:EE:FF --version 1.2.1 --firmware-file firmware/PanicButton_v1.2.1.bin
-
-# Other commands work the same way as in standard usage
-./manage-devices.sh get AA:BB:CC:DD:EE:FF
+  bool update_available = doc["update_available"];
+  if (update_available) {
+    String firmware_url = doc["firmware_url"];
+    String firmware_version = doc["firmware_version"];
+    String firmware_checksum = doc["checksum"];
+    
+    // Download and apply the update
+    if (downloadAndUpdate(firmware_url, firmware_checksum)) {
+      Serial.println("Update successful!");
+    }
+  }
+}
 ```
 
 ## API Endpoints
@@ -218,19 +131,83 @@ chmod +x manage-devices.sh
 
 All admin API endpoints require the `X-Admin-API-Key` header.
 
-- `GET /admin/devices` - List all devices
-- `GET /admin/devices/<mac_address>` - Get device information
-- `POST /admin/devices` - Add a new device
-- `PUT /admin/devices/<mac_address>` - Update device information
-- `DELETE /admin/devices/<mac_address>` - Delete a device
+- `GET /admin/api/devices` - List all devices
+- `POST /admin/api/devices` - Add a new device
+- `GET /admin/api/devices/:mac` - Get device info
+- `PUT /admin/api/devices/:mac` - Update device
+- `DELETE /admin/api/devices/:mac` - Delete device
+
+- `GET /admin/api/firmware` - List firmware files
+- `POST /admin/api/firmware` - Upload firmware
+- `DELETE /admin/api/firmware/:filename` - Delete firmware
+
+## Docker Management
+
+### View Logs
+
+```bash
+# View backend logs
+docker logs -f ota-server-backend
+
+# View frontend logs
+docker logs -f ota-server-frontend
+```
+
+### Stop Server
+
+```bash
+# Stop production server
+docker-compose down
+
+# Stop development server
+docker-compose -f docker-compose.dev.yml down
+```
+
+### Update Server
+
+```bash
+# Pull latest changes
+git pull
+
+# Rebuild and restart containers
+docker-compose down
+docker-compose up -d --build
+```
+
+## Development
+
+### Running in Development Mode
+
+Development mode includes hot-reload for both the backend and frontend:
+
+```bash
+docker-compose -f docker-compose.dev.yml up -d
+```
+
+### Backend API Documentation
+
+- Swagger UI: http://localhost:5000/admin/docs
+- ReDoc: http://localhost:5000/admin/redoc
+
+## Directory Structure
+
+```
+ota-server/
+├── backend/              # FastAPI backend
+├── frontend/             # Svelte frontend
+├── docker/               # Docker configuration
+├── firmware/             # Firmware storage
+├── .env.example          # Environment variables template
+├── docker-compose.yml    # Production configuration
+└── docker-compose.dev.yml # Development configuration
+```
 
 ## Security Considerations
 
-- Always use HTTPS in production
-- Use a strong, unique `shared_secret_key` for device authentication
-- Set a secure `admin_api_key` for admin API access
-- Consider using a reverse proxy (nginx, etc.) for production deployments
-- Store `devices.json` in a secure location
+- Change default keys in `.env` before deploying to production
+- Use HTTPS in production environments
+- Regularly update dependencies and Docker images
+- Configure a proper backup system for the `devices.json` and firmware files
 
 ## License
 
